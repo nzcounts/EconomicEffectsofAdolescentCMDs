@@ -1,29 +1,25 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 1-177.
-# Module role: Header and source provenance.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # =============================================================================
 # ADD HEALTH CAUSAL INFERENCE PIPELINE
 # =============================================================================
 #
 # WHAT THIS PROGRAM DOES, IN PLAIN LANGUAGE
 # -----------------------------------------
-# This program estimates whether being depressed as an adolescent CAUSES a
-# person to earn less as an adult, using a large national survey (Add Health)
-# that followed the same people from their teens into adulthood. "Causes" is the
+# This program estimates whether screening above the Wave-II adolescent
+# depressive-symptom threshold causally changes later labor-market outcomes
+# (Wave-IV earnings, participation, and hours; Wave-III/IV education and health)
+# in Add Health, which followed the same people from adolescence into adulthood. "Causes" is the
 # hard word: in survey data, depressed and non-depressed teens also differ in
 # many background ways (family, school, neighborhood, health), and those
-# differences could produce an earnings gap on their own. The job of this
+# differences could produce an outcome difference on their own. The job of this
 # program is to adjust for those background differences as carefully as possible
-# and then estimate the part of the earnings gap attributable to depression
+# and then estimate the part of the outcome difference attributable to depression
 # itself.
 #
 # The quantity it estimates is the effect AMONG THE PEOPLE WHO WERE ACTUALLY
 # DEPRESSED (statisticians call this the "ATT", the average effect on the
-# treated). It uses a modern, robust method called CV-TMLE that combines a model
-# of earnings with a model of who becomes depressed, so the answer stays
-# trustworthy even if one of those two models is imperfect. The program then runs
+# treated). It uses CV-TMLE, combining models for the outcome, depression, and
+# outcome observation. Its robustness conditions reduce reliance on any single
+# nuisance-model specification. The program then runs
 # a large battery of checks to see how much the answer depends on the choices
 # made along the way.
 #
@@ -32,12 +28,12 @@
 #   1. Load the survey data and the settings (all choices live in one place, the
 #      USER CONFIGURATION section).
 #   2. Build the three ingredients: WHO was depressed as a teen (the exposure),
-#      their adult EARNINGS (the outcome), and the many BACKGROUND variables
+#      their configured adult OUTCOME, and the many BACKGROUND variables
 #      (confounders) that must be adjusted for.
 #   3. Split people into groups for honest model-fitting (see "cross-fitting"
 #      below) and screen the very large set of background variables down to a
 #      workable one.
-#   4. Fit flexible machine-learning models for earnings and for depression and
+#   4. Fit flexible machine-learning models for the outcome and for depression and
 #      combine them into the causal estimate (the CV-TMLE step).
 #   5. Run diagnostics (is the estimate trustworthy?) and sensitivity analyses
 #      (does it survive reasonable changes to the choices?).
@@ -55,23 +51,23 @@
 #    6) FINAL W PREPROCESSING ... turns the covariates into the numeric matrix the models use.
 #    7) LEARNER REGISTRY ........ defines the machine-learning algorithms that get used.
 #    8) FINAL CV-TMLE ........... the core: fits the models and computes the causal estimate and its uncertainty.
-#    9) PEER-REVIEW DIAGNOSTICS . the many checks that show whether the estimate is trustworthy.
+#    9) DIAGNOSTICS ............. checks of estimation quality and robustness.
 #   10) PIPELINE RUNNER ......... ties the steps together, with save/resume ("checkpointing").
 #   11) PREFLIGHT UNIT TEST ..... a quick self-test on fake data to confirm the code runs end to end.
 #   12) SENSITIVITY RUNNER ...... re-runs the analysis under deliberate changes to test robustness.
-#   13) AUTORUN BLOCK .......... optionally starts a run when the file is executed.
+#   13) ENTRY POINT ............ scripts/run_analysis.R starts an explicit configured run.
 #
 # A FEW TERMS, IN PLAIN LANGUAGE
 # ------------------------------
 #   - Exposure / treatment: being depressed as an adolescent (yes/no).
-#   - Outcome: a mortality-inclusive adult earnings composite in dollars: verified
-#     deaths during 1997-2007 are assigned observed zero earnings, and the upper
-#     tail is bounded at a pre-specified weighted quantile.
+#   - Outcome: configurable adult earnings, labor-force participation, hours,
+#     educational attainment, or health. Supported outcomes use the same
+#     wave-specific mortality-inclusive zero-composite rule.
 #   - Confounder: a background variable that could influence both depression and
-#     earnings, and so must be adjusted for.
+#     the configured outcome, and so must be adjusted for.
 #   - Propensity: a person's estimated probability of having been depressed, given
 #     their background; used to fairly reweight the comparison group.
-#   - Nuisance models: the earnings model, depression (propensity) model, and
+#   - Nuisance models: the outcome model, depression (propensity) model, and
 #     outcome-observation model. They are means to an end, not the result of interest.
 #   - Cross-fitting: fitting the models on one part of the data and using them on a
 #     different part, so the flexible models cannot "cheat" and overstate certainty.
@@ -84,28 +80,25 @@
 #
 # HOW TO RUN IT
 # -------------
-# Source this file first; it defines cfg and all functions but does not execute a
-# production analysis by default. Set the optional analysis/gate toggles in cfg,
-# set cfg$global$pipeline_source_path to this exact file when auto-resolution is
-# unavailable, verify the configured source paths (the mortality path is already
-# fixed in cfg$paths$mortality), run validate_cfg(cfg) and
-# run_preflight_unit_test(cfg) in a clean R session,
-# and then call run_addhealth_pipeline(cfg) or run_multiseed_att(cfg, ...). Results
-# are written to the output folder as CSV files. Set autorun_pipeline=TRUE only
-# after the configuration is fully resolved and validated.
+# Copy config/config.example.yml to the ignored config/config.yml and resolve
+# its restricted-data paths. Run scripts/run_preflight.R in a clean R session,
+# then run scripts/run_analysis.R. The runner sources every numbered R module,
+# applies the local configuration, validates it, and writes results beneath the
+# configured output directory.
 #
-# A NOTE ON THE COMMENTS
-# ----------------------
-# This header and the overview lines are written for a general reader. The
-# detailed comments INSIDE the functions are written for an analyst or
-# statistician and use technical shorthand; a lay reader can safely skim those
-# and rely on the section map above for the "what and why".
+# PIPELINE SCOPE
+# --------------
+# Each run selects one supported outcome family, member, and wave. Shared
+# construction, screening, estimation, inference, diagnostics, and sensitivity
+# machinery is then applied using the corresponding outcome definition and
+# natural or configured support.
 # =============================================================================
 
-# Resolve and hash the actual pipeline source file. The final production run
-# must never rely on the version string alone for cache/checkpoint identity.
+# Resolve and hash the actual pipeline source file so cache and checkpoint
+# identity includes the source contents rather than only a version label.
 # Resolution order is: an explicit cfg path, sourced-file frames, Rscript's
 # --file argument, the active knitr input, and the active RStudio document.
+
 resolve_pipeline_source_path <- function(explicit_path = NULL) {
   candidates <- character(0)
 
@@ -156,13 +149,10 @@ file_fingerprint <- function(path) {
                 exists = FALSE, md5 = NA_character_))
   }
 
-  # A modular repository has no single analysis source file. When a directory
-  # is supplied, hash every R source file in stable relative-path order and
-  # hash that manifest. This preserves the original freeze-and-recheck safety
-  # property across the complete R/ tree.
+  # A directory fingerprint represents the complete modular source tree.
   if (dir.exists(path)) {
     root <- normalizePath(path, winslash = "/", mustWork = TRUE)
-    files <- sort(list.files(root, pattern = "\.[Rr]$", recursive = TRUE,
+    files <- sort(list.files(root, pattern = "\\.[Rr]$", recursive = TRUE,
                              full.names = TRUE))
     if (!length(files))
       return(list(path = root, exists = FALSE, md5 = NA_character_))
@@ -170,7 +160,7 @@ file_fingerprint <- function(path) {
     relative <- substring(normalized, nchar(root) + 2L)
     info <- file.info(normalized)
     manifest <- paste(relative, unname(tools::md5sum(normalized)),
-                      unname(info$size), sep = "	")
+                      unname(info$size), sep = "\t")
     manifest_path <- tempfile(pattern = "pipeline_source_manifest_", fileext = ".txt")
     on.exit(unlink(manifest_path, force = TRUE), add = TRUE)
     writeLines(manifest, manifest_path, useBytes = TRUE)
@@ -197,11 +187,10 @@ pipeline_script_fingerprint <- function(cfg = NULL, strict = FALSE) {
   if (!valid && isTRUE(strict)) {
     stop(paste0(
       "The pipeline source file could not be resolved and hashed. Set ",
-      "cfg$global$pipeline_source_path to the exact .R or .Rmd file before a production run."),
+      "cfg$global$pipeline_source_path to the source file or modular R directory before a production run."),
       call. = FALSE)
   }
   fp
 }
 
 .PIPELINE_SOURCE_PATH <- resolve_pipeline_source_path()
-

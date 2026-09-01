@@ -1,6 +1,5 @@
-# Copy this file to config/config.yml (ignored by Git) and replace every path.
-# Relative paths are resolved from the config/ directory. Never commit the
-# completed local file because it reveals restricted-data locations.
+# Copy this file to config/config.yml and replace every path.
+# Relative paths are resolved from config/. Never commit the completed file.
 
 global:
   output_dir: "../runs"
@@ -20,8 +19,7 @@ stages:
   run_diagnostics: true
   run_multiseed_att: false
 
-# These are examples only. Supply paths inside the approved restricted-use
-# environment. The filenames match the production script's expected sources.
+# Supply these only inside the approved restricted-use environment.
 paths:
   wave1_inhome: "/restricted/AddHealth/Standard/Survey/W1/allwave1.xpt"
   birth_records: "/restricted/AddHealth/Standard/BirthRecords/brdw5.xpt"
@@ -40,9 +38,9 @@ paths:
   wave5_inhome: "/restricted/AddHealth/Standard/Survey/W5/wave5.xpt"
   mortality: "/restricted/AddHealth/Standard/Surveillance/Ndi19i.xpt"
 
-# The public repository exposes only the verified primary specification.
+# Run one verified outcome specification at a time.
 outcome:
-  family: "Compensation"
+  family: "HoursWorked"
   family_member: null
   waves: 4
   compensation_transform: "identity"

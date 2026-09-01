@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 13493-15065.
-# Module role: Synthetic preflight test.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 11) PREFLIGHT UNIT TEST (synthetic data)
 # =============================================================================
 # Plain-English role: a fast end-to-end run on a tiny synthetic dataset to
@@ -797,7 +792,7 @@ run_preflight_unit_test <- function(cfg_template) {
       any(c(96, 97, 98, 99) %in% c(w7r$general_codes, w7r$skip_codes)))
     stop("Preflight FAILED: seven-digit exact sentinel handling is incorrect.", call. = FALSE)
 
-  # Existing long-factor declarations still force factorization. COMMID remains
+  # Configured long-factor declarations force factorization. COMMID remains
   # a factor but is explicitly excluded from questionnaire missing-code logic.
   lf <- data.frame(PB7 = c(1:28, 96, 97), COMMID.x = c(1:28, 96, 97))
   cfg_lf <- cfg_pre$preprocessing
@@ -913,8 +908,8 @@ run_preflight_unit_test <- function(cfg_template) {
     if (abs(as.numeric(s1 - s0)) <= 1e-6)
       stop("binary screening did not respond to relative weights.", call. = FALSE)
 
-    # The old Gaussian test set gy equal to x exactly, so weights could not
-    # change a perfect fit. Reuse the non-perfect binary pattern as a numeric Y.
+    # Use a non-perfect numeric response so unequal observation weights can
+    # affect the fitted Gaussian screening model.
     gy <- as.numeric(sy)
     g1 <- screen_gauss_linear(gy, sx, K = 3L, fold = sfold, weights = sw)
     g2 <- screen_gauss_linear(gy, sx, K = 3L, fold = sfold, weights = 100 * sw)
@@ -1139,7 +1134,7 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("The primary Q learner library is incomplete.", call. = FALSE)
   })
 
-  preflight_step("v8.28 fixed-nuisance MNAR known-answer tests", {
+  preflight_step("v8.30 fixed-nuisance MNAR known-answer tests", {
     n_m <- 240L
     idx_m <- seq_len(n_m)
     cluster_m <- rep(seq_len(40L), each = 6L)
@@ -1364,7 +1359,19 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("Curated sensitivity list must not re-run the already completed primary specification.",
            call. = FALSE)
     if (!"F1f_no_mortality_composite" %in% curated_names)
-      stop("Curated sensitivity list is missing the no-mortality comparator.", call. = FALSE)
+      stop("Curated sensitivity list is missing the no-mortality-composite comparator.",
+           call. = FALSE)
+    f1f <- final_sensitivity_scenarios()[["F1f_no_mortality_composite"]]
+    cfg_f1f <- merge_cfg_overlay(cfg_pre, f1f$overlay)
+    validate_cfg(cfg_f1f)
+    f1f_enabled <- vapply(c(3L, 4L), function(w) {
+      isTRUE(resolve_mortality_spec(cfg_f1f, w)$enabled)
+    }, logical(1L))
+    if (!all(f1f_enabled) ||
+        isTRUE(cfg_f1f$mortality_sensitivity$composite_zero_at_death))
+      stop(paste0(
+        "F1f must retain Wave-III/IV mortality linkage while disabling only ",
+        "mortality-composite zeroing."), call. = FALSE)
     if (!"F0f_combined_nuisance_balance_pi" %in% curated_names)
       stop("Curated sensitivity list is missing the combined nuisance scenario.", call. = FALSE)
     if (any(grepl("cutpoint_24|cutpoint.*24", curated_names, ignore.case = TRUE)))
@@ -1400,130 +1407,151 @@ run_preflight_unit_test <- function(cfg_template) {
   })
 
 
-  preflight_step("NDIDD19Y mortality derivation, audit-only IYEAR4, and F1f isolation", {
+  preflight_step("harmonized month-timed mortality classification", {
     cfg_mort <- cfg_template
     cfg_mort$global$save_stage_csvs <- FALSE
     cfg_mort$mortality_sensitivity$enabled <- TRUE
+    cfg_mort$mortality_sensitivity$enabled_waves <- c(3L, 4L)
     cfg_mort$mortality_sensitivity$composite_zero_at_death <- TRUE
-    mortality_toy <- data.frame(
+    cfg_mort$outcome$family <- "Compensation"
+    cfg_mort$outcome$current_wave <- 4L
+    cfg_mort$outcome$waves <- 4L
+    mc4 <- resolve_mortality_spec(cfg_mort, 4L)
+    cfg_lfp4 <- cfg_mort
+    cfg_lfp4$outcome$family <- "LaborForceParticipation"
+    mc4_lfp <- resolve_mortality_spec(cfg_lfp4, 4L)
+    if (!identical(mc4$timing_mode, "interview_month") ||
+        !identical(as.integer(mc4$death_year_end), 2009L) ||
+        !identical(mc4$timing_mode, mc4_lfp$timing_mode) ||
+        !identical(as.integer(mc4$death_year_end),
+                   as.integer(mc4_lfp$death_year_end)))
+      stop("Wave-IV mortality is not harmonized across outcome families through 2009.",
+           call. = FALSE)
+
+    m4 <- data.frame(
       AID = 1:8,
-      NDIDD19Y = c(1996, 1997, 2001, 2007, 2008, 2019, NA, 99997),
+      NDIDD19Y = c(2008, 2008, 2008, 2008, 2009, 2009, 2009, 99997),
+      NDIDD19M = c(5, 6, 7, 12, 1, 2, 997, 997),
       check.names = FALSE)
-    mort_result <- derive_mortality_indicator_from_data(mortality_toy, cfg_mort)
-    raw_var <- cfg_mort$mortality_sensitivity$death_in_window_var
-    expected_raw <- c(0L, 1L, 1L, 1L, 0L, 0L, 0L, 0L)
-    if (!identical(mort_result$data[[raw_var]], expected_raw) ||
-        mort_result$audit$n_deaths_in_raw_window != 3L)
-      stop("NDIDD19Y did not produce the intended inclusive 1997-2007 raw-window indicator.",
+    timing4 <- data.frame(
+      AID = c(1, 2, 3, 8),
+      IYEAR4 = c(2008, 2008, 2008, 2009),
+      IMONTH4 = c(6, 6, 6, 1),
+      check.names = FALSE)
+    main4 <- data.frame(AID = 1:8, GSWGT1 = rep(1, 8), W = 1:8)
+    linked4 <- merge_mortality_indicator_from_data(
+      main4, m4, cfg_mort, interview_timing = timing4)
+    expected4 <- c(1L, 0L, 0L, 1L, 1L, 0L, 0L, 0L)
+    if (!identical(linked4$data[[mc4$death_before_outcome_var]], expected4) ||
+        linked4$audit$fieldwork_start_year != 2008L ||
+        linked4$audit$fieldwork_start_month != 6L ||
+        linked4$audit$fieldwork_end_year != 2009L ||
+        linked4$audit$fieldwork_end_month != 1L ||
+        linked4$audit$n_same_interview_month_unordered != 1L)
+      stop("Wave-IV harmonized mortality known-answer classification failed.",
            call. = FALSE)
+    if (linked4$data[[mc4$timing_status_var]][5L] !=
+          "on_or_before_fieldwork_end_month_no_interview" ||
+        linked4$data[[mc4$timing_status_var]][7L] !=
+          "fieldwork_end_year_death_month_unknown_no_interview")
+      stop("Wave-IV fieldwork-end mortality status is incorrect.", call. = FALSE)
 
-    main_link_toy <- data.frame(
-      AID = 1:4, GSWGT1 = rep(1, 4), W = 1:4,
-      check.names = FALSE)
-    # IYEAR4 is audit-only. Missing values for deaths/nonrespondents are expected,
-    # and changing an observed interview year must never alter Death1997_2007.
-    interview_audit_toy <- data.frame(
-      AID = 1:3, IYEAR4 = c(2007L, 2008L, 2009L),
-      check.names = FALSE)
-    complete_link <- merge_mortality_indicator_from_data(
-      main_link_toy, mortality_toy[1:4, , drop = FALSE], cfg_mort,
-      wave4_timing = interview_audit_toy)
-    if (!identical(complete_link$data$Death1997_2007,
-                   c(0L, 1L, 1L, 1L)) ||
-        complete_link$audit$n_required_rows_unmatched != 0L ||
-        complete_link$audit$n_deaths_without_interview_year != 1L)
-      stop("Mortality linkage did not preserve the fixed NDIDD19Y window with audit-only IYEAR4.",
+    # A valid death year with NDIDD19M=997 remains a candidate death with an
+    # unknown month; other nonmissing invalid month codes fail loudly.
+    unknown_m <- derive_mortality_indicator_from_data(
+      data.frame(AID = 1L, NDIDD19Y = 2000L, NDIDD19M = 997L), cfg_mort)
+    if (!is.na(unknown_m$data[[mc4$derived_death_month_var]][1L]) ||
+        unknown_m$data[[mc4$death_in_window_var]][1L] != 1L)
+      stop("NDIDD19M=997 was not retained as unknown month on a valid death year.",
            call. = FALSE)
-    changed_interview <- interview_audit_toy
-    changed_interview$IYEAR4 <- c(2009L, 2007L, 2008L)
-    changed_link <- merge_mortality_indicator_from_data(
-      main_link_toy, mortality_toy[1:4, , drop = FALSE], cfg_mort,
-      wave4_timing = changed_interview)
-    if (!identical(changed_link$data$Death1997_2007,
-                   complete_link$data$Death1997_2007))
-      stop("Audit-only IYEAR4 unexpectedly changed mortality classification.",
-           call. = FALSE)
-    invalid_interview <- interview_audit_toy
-    invalid_interview$IYEAR4[1L] <- 2015L
-    if (!inherits(try(merge_mortality_indicator_from_data(
-        main_link_toy, mortality_toy[1:4, , drop = FALSE], cfg_mort,
-        wave4_timing = invalid_interview), silent = TRUE), "try-error"))
-      stop("Invalid nonmissing IYEAR4 did not trigger the audit-value validation gate.",
-           call. = FALSE)
+    if (!inherits(try(derive_mortality_indicator_from_data(
+        data.frame(AID = 1L, NDIDD19Y = 2000L, NDIDD19M = 998L), cfg_mort),
+        silent = TRUE), "try-error"))
+      stop("Unrecognized nonmissing NDIDD19M code did not fail loudly.", call. = FALSE)
 
-    incomplete_mortality <- mortality_toy[1:3, , drop = FALSE]
+    # Wave III uses the same rule, with its own latest observed fieldwork month.
+    cfg_ed3 <- cfg_mort
+    cfg_ed3$outcome$family <- "EducationalAttainment"
+    cfg_ed3$outcome$family_member <- "at_least_hs"
+    cfg_ed3$outcome$current_wave <- 3L
+    cfg_ed3$outcome$waves <- 3L
+    mc3 <- resolve_mortality_spec(cfg_ed3, 3L)
+    m3 <- data.frame(
+      AID = 1:7,
+      NDIDD19Y = c(2001, 2002, 2001, 2001, 2002, 2002, 99997),
+      NDIDD19M = c(12, 4, 9, 10, 5, 997, 997))
+    timing3 <- data.frame(
+      AID = c(3, 4, 7),
+      IYEAR3 = c(2001, 2001, 2002),
+      IMONTH3 = c(10, 10, 4))
+    main3 <- data.frame(AID = 1:7, GSWGT1 = rep(1, 7), W = 1:7)
+    linked3 <- merge_mortality_indicator_from_data(
+      main3, m3, cfg_ed3, interview_timing = timing3)
+    expected3 <- c(1L, 1L, 1L, 0L, 0L, 0L, 0L)
+    if (!identical(linked3$data[[mc3$death_before_outcome_var]], expected3) ||
+        linked3$audit$fieldwork_end_year != 2002L ||
+        linked3$audit$fieldwork_end_month != 4L)
+      stop("Wave-III fieldwork-end mortality known-answer test failed.", call. = FALSE)
+
+    # Incomplete mortality linkage remains a hard failure unless explicitly relaxed.
+    incomplete_mortality <- m4[1:7, , drop = FALSE]
     if (!inherits(try(merge_mortality_indicator_from_data(
-        main_link_toy, incomplete_mortality, cfg_mort,
-        wave4_timing = interview_audit_toy), silent = TRUE), "try-error"))
+        main4, incomplete_mortality, cfg_mort,
+        interview_timing = timing4), silent = TRUE), "try-error"))
       stop("Incomplete mortality linkage did not trigger the enabled linkage gate.",
            call. = FALSE)
-    cfg_mort_relaxed <- cfg_mort
-    cfg_mort_relaxed$mortality_sensitivity$require_complete_linkage <- FALSE
-    relaxed_link <- suppressWarnings(merge_mortality_indicator_from_data(
-      main_link_toy, incomplete_mortality, cfg_mort_relaxed,
-      wave4_timing = interview_audit_toy))
-    if (!identical(relaxed_link$data$Death1997_2007,
-                   c(0L, 1L, 1L, 0L)) ||
-        relaxed_link$audit$n_required_rows_unmatched != 1L)
-      stop("Disabled mortality linkage gate did not map an unmatched row to no recorded death.",
+    cfg_relaxed_link <- cfg_mort
+    cfg_relaxed_link$mortality_sensitivity$require_complete_linkage <- FALSE
+    relaxed <- suppressWarnings(merge_mortality_indicator_from_data(
+      main4, incomplete_mortality, cfg_relaxed_link,
+      interview_timing = timing4))
+    if (relaxed$data[[mc4$death_before_outcome_var]][8L] != 0L ||
+        relaxed$audit$n_required_rows_unmatched != 1L)
+      stop("Relaxed mortality-linkage gate failed its known-answer behavior.",
            call. = FALSE)
 
-    cfg_no_death_override <- cfg_mort
-    cfg_no_death_override$mortality_sensitivity$no_death_codes <- 2000
-    override_result <- derive_mortality_indicator_from_data(
-      data.frame(AID = 1L, NDIDD19Y = 2000), cfg_no_death_override)
-    if (override_result$data[[raw_var]] != 0L ||
-        override_result$audit$n_no_death_codes_overlapping_year_range != 1L)
+    # Explicit no-death code overrides an otherwise calendar-like year.
+    cfg_override <- cfg_mort
+    cfg_override$mortality_sensitivity$no_death_codes <- 2000
+    override <- derive_mortality_indicator_from_data(
+      data.frame(AID = 1L, NDIDD19Y = 2000L, NDIDD19M = 1L), cfg_override)
+    if (override$data[[mc4$death_in_window_var]] != 0L ||
+        override$audit$n_no_death_codes_overlapping_year_range != 1L)
       stop("Explicit mortality no-death code did not override calendar-year interpretation.",
            call. = FALSE)
-
-    mortality_bad <- data.frame(AID = 1:2, NDIDD19Y = c(2000, 9999))
+    bad_mort <- data.frame(AID = 1:2, NDIDD19Y = c(2000, 9999), NDIDD19M = c(1, 1))
     if (!inherits(try(derive_mortality_indicator_from_data(
-        mortality_bad, cfg_mort), silent = TRUE), "try-error"))
-      stop("Unrecognized mortality codes did not trigger the enabled gate.",
+        bad_mort, cfg_mort), silent = TRUE), "try-error"))
+      stop("Unrecognized mortality year code did not trigger the enabled gate.",
            call. = FALSE)
 
+    # The contradiction gate prevents overwriting an observed outcome
+    # unless the analyst explicitly relaxes it.
     composite_toy <- data.frame(
-      AID = 1:4,
-      Y = c(100, NA, 50, NA),
+      AID = 1:4, Y = c(100, NA, 50, NA),
       EarningsSource = c("exact", "missing", "bracket", "missing"),
-      Death1997_2007 = c(1L, 1L, 0L, 0L),
-      NDI19DeathYear = c(2000L, 2001L, NA, NA),
-      IYEAR4 = c(NA, NA, 2008L, 2008L),
+      DeathW4 = c(1L, 1L, 0L, 0L), NDIY4 = c(2000L, 2001L, NA, NA),
+      NDIM4 = c(1L, NA_integer_, NA_integer_, NA_integer_),
+      D4Time = c("before_fieldwork_end_year_no_interview",
+                 "before_fieldwork_end_year_no_interview",
+                 "no_death_or_outside_horizon", "no_death_or_outside_horizon"),
+      IYEAR4 = c(NA, NA, 2008L, 2008L), IMONTH4 = c(NA, NA, 5L, 5L),
       stringsAsFactors = FALSE)
     attr(composite_toy, "outcome_support") <- list(lower = 0, upper = 200)
-    if (!inherits(try(apply_mortality_composite(composite_toy, cfg_mort),
-                      silent = TRUE), "try-error"))
-      stop("Observed outcomes among recorded deaths did not trigger the mortality contradiction gate.",
+    if (!inherits(try(apply_mortality_composite(
+        composite_toy, cfg_mort), silent = TRUE), "try-error"))
+      stop("Observed outcomes among pre-outcome deaths did not trigger the contradiction gate.",
            call. = FALSE)
-    cfg_mort_relaxed_outcome <- cfg_mort
-    cfg_mort_relaxed_outcome$mortality_sensitivity$
-      fail_on_death_with_observed_original_outcome <- FALSE
-    composite_result <- suppressWarnings(
-      apply_mortality_composite(composite_toy, cfg_mort_relaxed_outcome))
-    if (!identical(composite_result$data$Y, c(0, 0, 50, NA_real_)) ||
-        !identical(composite_result$data$EarningsSource,
+    cfg_relaxed_outcome <- cfg_mort
+    cfg_relaxed_outcome$mortality_sensitivity$fail_on_death_with_observed_original_outcome <- FALSE
+    comp <- suppressWarnings(apply_mortality_composite(
+      composite_toy, cfg_relaxed_outcome))
+    if (!identical(comp$data$Y, c(0, 0, 50, NA_real_)) ||
+        !identical(comp$data$EarningsSource,
                    c("mortality_zero", "mortality_zero", "bracket", "missing")) ||
-        composite_result$audit$n_deaths_with_observed_original_outcome != 1L ||
-        composite_result$audit$n_deaths_recoded_to_observed_zero != 2L)
-      stop("Disabled mortality contradiction gate did not preserve the audited zero recode.",
-           call. = FALSE)
-
-    # F1f is an ordinary-earnings estimand. It must validate without any
-    # mortality file, IYEAR4 audit, or mortality-specific required output.
-    f1f <- final_sensitivity_scenarios()[["F1f_no_mortality_composite"]]
-    cfg_f1f <- merge_cfg_overlay(cfg_template, f1f$overlay)
-    cfg_f1f$paths$mortality <- NA_character_
-    cfg_f1f$global$require_script_md5 <- FALSE
-    cfg_f1f$global$pipeline_source_path <- NA_character_
-    validate_cfg(cfg_f1f)
-    f1f_paths <- basename(required_publication_paths(cfg_f1f))
-    forbidden <- c(
-      basename(cfg_f1f$mortality_sensitivity$linkage_audit_csv),
-      basename(cfg_f1f$mortality_sensitivity$interview_year_audit_csv),
-      basename(cfg_f1f$mortality_sensitivity$output_csv))
-    if (any(forbidden %in% f1f_paths))
-      stop("F1f incorrectly retained mortality-specific publication requirements.",
+        comp$audit$n_deaths_with_observed_original_outcome != 1L ||
+        comp$audit$n_deaths_recoded_to_observed_zero != 2L)
+      stop("Relaxed mortality contradiction gate failed its audited zero recode.",
            call. = FALSE)
   })
 
@@ -1564,6 +1592,179 @@ run_preflight_unit_test <- function(cfg_template) {
     if (!isTRUE(all.equal(expected_mnar_clip, 0.4)))
       stop("MNAR clipping fraction is not using treated missing-potential-outcome contribution weights.",
            call. = FALSE)
+  })
+
+  preflight_step("verified outcome constructors, nesting, scope, and policy defaults", {
+    cfg_y <- cfg_template
+    cfg_y$outcome$current_wave <- 4L
+    lfp4 <- data.frame(AID=as.character(1:9),
+      H4LM6=c(1,0,0,0,0,0,0,0,0),
+      H4LM11=c(7,1,0,0,0,0,0,0,0),
+      H4LM14=c(97,97,1,2,3,5,4,6,10), stringsAsFactors=FALSE)
+    lfp4_y <- construct_outcome_labor_force_participation(
+      lfp4, 4L, cfg_y$outcome$families$LaborForceParticipation,
+      cfg_y$outcome, NULL, pipeline_cfg=NULL)$Y
+    if (!identical(lfp4_y, c(1L,1L,1L,1L,1L,1L,0L,0L,NA_integer_)))
+      stop("Wave-IV route-aware LFP known-answer test failed.", call. = FALSE)
+
+    hrs4 <- data.frame(AID=as.character(1:6),
+      H4LM6=c(1,0,0,0,0,0), H4LM11=c(7,1,1,0,1,1),
+      H4LM12=c(1,2,1,97,2,98), H4LM13=c(997,70,997,997,997,65),
+      H4LM19=c(45,40,130,997,50,40), stringsAsFactors=FALSE)
+    hrs4_y <- construct_outcome_hours_worked(
+      hrs4, 4L, cfg_y$outcome$families$HoursWorked,
+      cfg_y$outcome, NULL, pipeline_cfg=NULL)$Y
+    if (!isTRUE(all.equal(hrs4_y, c(45,70,120,0,NA,65), check.attributes=FALSE)))
+      stop("Wave-IV hours known-answer test failed.", call. = FALSE)
+
+    edu3 <- data.frame(
+      AID = as.character(1:10),
+      H3ED1 = c(12,13,17,12,NA,12,18,96,12,13),
+      H3ED2 = c(0,0,6,0,0,1,0,0,8,0),
+      H3ED3 = c(0,0,9,1,0,0,0,0,9,0),
+      H3ED5 = c(0,0,1,0,1,6,0,0,8,0),
+      stringsAsFactors = FALSE)
+    edu3_expected <- list(
+      at_least_hs = c(0L,1L,1L,1L,1L,1L,NA,NA,NA,1L),
+      at_least_some_college = c(0L,1L,1L,0L,1L,NA,NA,NA,NA,1L),
+      at_least_college_grad = c(0L,0L,1L,0L,1L,NA,NA,0L,NA,0L))
+    for (member in names(edu3_expected)) {
+      out <- construct_outcome_educational_attainment(
+        edu3, 3L, cfg_y$outcome$families$EducationalAttainment,
+        cfg_y$outcome, member, pipeline_cfg = NULL)
+      if (!identical(out$Y, edu3_expected[[member]]))
+        stop("Wave-III education known-answer test failed for ", member, ".",
+             call. = FALSE)
+      if (!"n_nested_violations" %in% out$audit$metric ||
+          as.integer(out$audit$value[out$audit$metric == "n_nested_violations"]) != 0L)
+        stop("Wave-III education nesting audit failed for ", member, ".",
+             call. = FALSE)
+    }
+
+    edu4 <- data.frame(
+      AID = as.character(1:10),
+      H4ED2 = c(0,2,3,5,6,7,13,96,98,NA),
+      stringsAsFactors = FALSE)
+    edu4_expected <- list(
+      at_least_hs = c(0L,0L,1L,1L,1L,1L,1L,NA,NA,NA),
+      at_least_some_college = c(0L,0L,0L,0L,1L,1L,1L,NA,NA,NA),
+      at_least_college_grad = c(0L,0L,0L,0L,0L,1L,1L,NA,NA,NA))
+    for (member in names(edu4_expected)) {
+      out <- construct_outcome_educational_attainment(
+        edu4, 4L, cfg_y$outcome$families$EducationalAttainment,
+        cfg_y$outcome, member, pipeline_cfg = NULL)
+      if (!identical(out$Y, edu4_expected[[member]]))
+        stop("Wave-IV education known-answer test failed for ", member, ".",
+             call. = FALSE)
+    }
+    if (!inherits(try(construct_outcome_educational_attainment(
+        data.frame(AID="x", H4ED2=99), 4L,
+        cfg_y$outcome$families$EducationalAttainment,
+        cfg_y$outcome, "at_least_college_grad", pipeline_cfg=NULL),
+        silent=TRUE), "try-error"))
+      stop("Wave-IV education accepted unmapped code 99.", call. = FALSE)
+
+    health <- data.frame(
+      AID = as.character(1:9), H3GH1 = c(1,2,3,4,5,96,98,99,NA),
+      H4GH1 = c(1,2,3,4,5,96,98,99,NA), stringsAsFactors = FALSE)
+    health_expected <- c(1L,1L,1L,0L,0L,NA,NA,NA,NA)
+    for (wave in c(3L, 4L)) {
+      out <- construct_outcome_health_status(
+        health, wave, cfg_y$outcome$families$HealthStatus,
+        cfg_y$outcome, "at_least_good", pipeline_cfg = NULL)
+      if (!identical(out$Y, health_expected))
+        stop("Wave-", wave, " health-status known-answer test failed.",
+             call. = FALSE)
+    }
+    if (!inherits(try(construct_outcome_health_status(
+        data.frame(AID="x", H3GH1=6), 3L,
+        cfg_y$outcome$families$HealthStatus,
+        cfg_y$outcome, "at_least_good", pipeline_cfg=NULL),
+        silent=TRUE), "try-error"))
+      stop("HealthStatus accepted unmapped finite code 6.", call. = FALSE)
+
+    # The hard scope cannot be bypassed by the unverified-specification override.
+    scope_cases <- list(
+      list(family="LaborForceParticipation", waves=3L),
+      list(family="HoursWorked", waves=3L),
+      list(family="UsualHours", waves=4L),
+      list(family="Compensation", waves=3L),
+      list(family="EducationalAttainment", waves=5L),
+      list(family="HealthStatus", waves=5L))
+    for (case in scope_cases) {
+      bad <- cfg_template
+      bad$outcome$family <- case$family
+      bad$outcome$waves <- case$waves
+      bad$outcome$family_member <- NULL
+      bad$safety$allow_unverified_outcome_specs <- TRUE
+      if (!inherits(try(validate_cfg(bad), silent=TRUE), "try-error"))
+        stop(sprintf("Hard outcome scope accepted %s at Wave %d.",
+                     case$family, case$waves), call. = FALSE)
+    }
+    for (family in c("EducationalAttainment", "HealthStatus")) {
+      good <- cfg_template
+      good$outcome$family <- family
+      good$outcome$waves <- "all"
+      good$outcome$family_member <- NULL
+      if (inherits(try(validate_cfg(good), silent=TRUE), "try-error"))
+        stop(family, " failed verification for its supported Wave-III/IV scope.",
+             call. = FALSE)
+    }
+
+    # Policy components and the prevention-gain ratio remain enabled for every
+    # supported primary outcome; runtime defaults change only the outcome type.
+    expected_type <- c(
+      EducationalAttainment="binary", HealthStatus="binary",
+      LaborForceParticipation="binary", HoursWorked="continuous",
+      Compensation="continuous")
+    for (family in names(expected_type)) {
+      policy_cfg <- cfg_template
+      policy_cfg$outcome$family <- family
+      policy_cfg$outcome$waves <- supported_outcome_waves(family)[1L]
+      policy_cfg$outcome$family_member <- if (identical(family, "EducationalAttainment"))
+        "at_least_hs" else if (identical(family, "HealthStatus"))
+        "at_least_good" else NULL
+      policy_cfg <- apply_outcome_runtime_defaults(policy_cfg)
+      if (!identical(policy_cfg$analysis$outcome_type, unname(expected_type[family])) ||
+          !isTRUE(policy_cfg$policy$enable_policy_components) ||
+          !isTRUE(policy_cfg$policy$enable_att_prevalence_translation) ||
+          !isTRUE(compensation_ratio_translation_enabled(policy_cfg)))
+        stop("Policy/runtime defaults failed for ", family, ".", call. = FALSE)
+    }
+    transformed_cfg <- cfg_template
+    transformed_cfg$outcome$compensation_transform <- "log1p"
+    if (compensation_ratio_translation_enabled(transformed_cfg))
+      stop("Transformed Compensation incorrectly enabled arithmetic-scale ratios.",
+           call. = FALSE)
+
+    cfg_m3 <- cfg_template; cfg_m3$outcome$current_wave <- 3L
+    cfg_m3$mortality_sensitivity$enabled <- TRUE
+    cfg_m3$mortality_sensitivity$enabled_waves <- c(3L,4L)
+    mtoy <- data.frame(AID=as.character(1:4),
+      NDIDD19Y=c(2000,2002,2007,99997), NDIDD19M=c(1,2,3,997))
+    d3 <- derive_mortality_indicator_from_data(mtoy, cfg_m3)$data$D3Raw
+    cfg_m4 <- cfg_m3; cfg_m4$outcome$current_wave <- 4L
+    d4 <- derive_mortality_indicator_from_data(mtoy, cfg_m4)$data$D4Raw
+    if (!identical(d3, c(1L,1L,0L,0L)) || !identical(d4, c(1L,1L,1L,0L)))
+      stop("Wave-specific mortality raw-horizon toggle test failed.", call. = FALSE)
+
+    # Outcome-aware sensitivity filtering never applies earnings-specific
+    # measurement/transformation scenarios to HoursWorked.
+    cfg_h_nomort <- cfg_template
+    cfg_h_nomort$outcome$family <- "HoursWorked"
+    cfg_h_nomort$outcome$waves <- 4L
+    h_nomort_sc <- filter_sensitivity_scenarios_for_outcome(
+      cfg_h_nomort, final_sensitivity_scenarios())
+    forbidden_h <- c("F1_bound_refit_q0990", "F1b_bound_refit_q1000",
+                     "F1c_exact_earnings_only", "F1d_log1p_earnings",
+                     "F1e_asinh_earnings")
+    if (any(forbidden_h %in% names(h_nomort_sc)))
+      stop("Outcome-aware sensitivity filter retained an inapplicable HoursWorked scenario.",
+           call. = FALSE)
+    if (!"F1f_no_mortality_composite" %in% names(h_nomort_sc))
+      stop(paste0(
+        "Outcome-aware sensitivity filtering incorrectly removed the ",
+        "mortality-composite comparator from HoursWorked."), call. = FALSE)
   })
 
   message(sprintf(paste0("Preflight OK. Dollar ATT=$%.2f (SE $%.2f); prevention gain=%.2f%% ",

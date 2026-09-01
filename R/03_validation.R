@@ -1,8 +1,4 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 1249-1855.
-# Module role: Package loading and configuration validation.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
+# =============================================================================
 # 1) PACKAGE LOADING AND CONFIG VALIDATION
 # =============================================================================
 # Plain-English role: Make sure the packages needed for the enabled stages
@@ -52,11 +48,28 @@ validate_runtime_environment <- function(cfg, required_packages) {
   invisible(TRUE)
 }
 
-# Production-verification gate for outcome constructors. This prevents a
-# placeholder or illustrative constructor from producing plausible-looking
-# results merely because it returns nonmissing values. Wave IV Compensation is
-# verified against H4EC2/H4EC3. PassThrough is allowed only when its source is
-# explicitly named because it performs no guessed recoding.
+# Hard family/wave scope. This is deliberately separate from the configurable
+# verification override: unsupported waves cannot be enabled by setting
+# allow_unverified_outcome_specs=TRUE.
+supported_outcome_waves <- function(family) {
+  switch(as.character(family),
+    EducationalAttainment = c(3L, 4L),
+    HealthStatus = c(3L, 4L),
+    Compensation = 4L,
+    LaborForceParticipation = 4L,
+    HoursWorked = 4L,
+    PassThrough = 4L,
+    UsualHours = integer(0),
+    MentalHealth = integer(0),
+    SubstanceUse = integer(0),
+    integer(0))
+}
+
+# Outcome-specification verification gate. Only exact, codebook-locked
+# family/wave mappings can produce supported results. PassThrough is allowed
+# only when its source is explicitly named because it performs no guessed
+# recoding.
+
 is_verified_outcome_spec <- function(cfg, family, wave) {
   wave <- as.integer(wave)
   fam_cfg <- cfg$outcome$families[[family]]
@@ -80,6 +93,63 @@ is_verified_outcome_spec <- function(cfg, family, wave) {
     )
   }
 
+  if (identical(family, "EducationalAttainment")) {
+    src <- fam_cfg$sources[[as.character(wave)]]
+    expected_members <- c("at_least_hs", "at_least_some_college",
+                          "at_least_college_grad")
+    members_ok <- identical(names(fam_cfg$members), expected_members) &&
+      all(vapply(fam_cfg$members, function(z) isTRUE(z$primary), logical(1)))
+    if (!members_ok) return(FALSE)
+    if (identical(wave, 3L)) {
+      return(is.character(src) &&
+        identical(unname(src["highest_grade"]), "H3ED1") &&
+        identical(unname(src["high_school_equivalency"]), "H3ED2") &&
+        identical(unname(src["high_school_diploma"]), "H3ED3") &&
+        identical(unname(src["college_graduate"]), "H3ED5") &&
+        setequal(fam_cfg$drop_from_candidates_by_wave[["3"]],
+                 c("H3ED1", "H3ED2", "H3ED3", "H3ED5")))
+    }
+    if (identical(wave, 4L)) {
+      return(is.character(src) && length(src) == 1L &&
+        identical(unname(src), "H4ED2") &&
+        identical(unname(fam_cfg$drop_from_candidates_by_wave[["4"]]), "H4ED2"))
+    }
+    return(FALSE)
+  }
+
+  if (identical(family, "HealthStatus")) {
+    src <- fam_cfg$sources[[as.character(wave)]]
+    members_ok <- identical(names(fam_cfg$members), "at_least_good") &&
+      isTRUE(fam_cfg$members$at_least_good$primary)
+    return(members_ok && wave %in% c(3L, 4L) && is.character(src) &&
+      length(src) == 1L && identical(unname(src), paste0("H", wave, "GH1")))
+  }
+
+  if (identical(family, "LaborForceParticipation")) {
+    src <- fam_cfg$sources[[as.character(wave)]]
+    if (identical(wave, 4L)) {
+      return(is.character(src) &&
+             identical(unname(src["first_job_current"]), "H4LM6") &&
+             identical(unname(src["current_work"]), "H4LM11") &&
+             identical(unname(src["current_status"]), "H4LM14"))
+    }
+    return(FALSE)
+  }
+
+  if (identical(family, "HoursWorked")) {
+    src <- fam_cfg$sources[[as.character(wave)]]
+    if (identical(wave, 4L)) {
+      return(is.character(src) &&
+             identical(unname(src["first_job_current"]), "H4LM6") &&
+             identical(unname(src["current_work"]), "H4LM11") &&
+             identical(unname(src["current_jobs"]), "H4LM12") &&
+             identical(unname(src["total_hours"]), "H4LM13") &&
+             identical(unname(src["primary_job_hours"]), "H4LM19") &&
+             isTRUE(all.equal(as.numeric(fam_cfg$cap_hours), 120)))
+    }
+    return(FALSE)
+  }
+
   if (identical(family, "PassThrough")) {
     src <- fam_cfg$source_var
     return(is.character(src) && length(src) == 1L && !is.na(src) && nzchar(src) &&
@@ -87,6 +157,51 @@ is_verified_outcome_spec <- function(cfg, family, wave) {
   }
 
   FALSE
+}
+
+resolve_mortality_spec <- function(cfg, wave = NULL) {
+  base <- cfg$mortality_sensitivity %||% list(enabled = FALSE)
+  if (is.null(wave)) wave <- cfg$outcome$current_wave %||% NULL
+  if (is.null(wave) || length(wave) != 1L || !is.finite(as.numeric(wave)))
+    stop("resolve_mortality_spec requires one explicit outcome wave.", call. = FALSE)
+  wave <- as.integer(wave)
+  spec <- (base$wave_specs %||% list())[[as.character(wave)]]
+  enabled_waves <- as.integer(base$enabled_waves %||% integer(0))
+  enabled_here <- isTRUE(base$enabled %||% FALSE) && wave %in% enabled_waves
+  common_names <- setdiff(names(base), c("wave_specs", "enabled_waves"))
+  out <- base[common_names]
+  if (!is.null(spec)) out <- utils::modifyList(out, spec)
+
+  out$enabled <- enabled_here
+  out$outcome_wave <- wave
+  out
+}
+
+mortality_timing_rule_text <- function(mort) {
+  mode <- as.character(mort$timing_mode %||% "fixed_window")
+  if (identical(mode, "fixed_window")) {
+    return(sprintf(
+      "%s fixed year-window %d-%d inclusive",
+      mort$source_var %||% "NDIDD19Y",
+      as.integer(mort$death_year_start), as.integer(mort$death_year_end)))
+  }
+  if (identical(mode, "interview_month")) {
+    return(sprintf(
+      paste0("%s/%s month-timed before %s/%s for interviewed respondents; ",
+             "no-interview deaths on or before the latest complete interview ",
+             "month in the wave file are classified before the fieldwork endpoint"),
+      mort$source_var %||% "NDIDD19Y",
+      mort$source_month_var %||% "NDIDD19M",
+      mort$interview_year_var %||% "interview_year",
+      mort$interview_month_var %||% "interview_month"))
+  }
+  stop("Unknown mortality timing mode: ", mode, call. = FALSE)
+}
+
+mortality_enabled_for_wave <- function(cfg, wave = NULL) {
+  if (is.null(wave)) wave <- cfg$outcome$current_wave %||% NULL
+  if (is.null(wave) || length(wave) != 1L) return(FALSE)
+  isTRUE(resolve_mortality_spec(cfg, wave)$enabled)
 }
 
 validate_cfg <- function(cfg) {
@@ -179,340 +294,117 @@ validate_cfg <- function(cfg) {
       stop("Enabled MNAR diagnostics require a finite shift grid containing zero.", call. = FALSE)
   }
 
-  mort <- cfg$mortality_sensitivity %||% list(enabled = FALSE)
-  mortality_enabled <- mort$enabled %||% FALSE
+  mort_base <- cfg$mortality_sensitivity %||% list(enabled = FALSE)
+  mortality_enabled <- mort_base$enabled %||% FALSE
   if (!is.logical(mortality_enabled) || length(mortality_enabled) != 1L ||
       is.na(mortality_enabled))
     stop("mortality_sensitivity$enabled must be one nonmissing logical value.", call. = FALSE)
-  if (isTRUE(mortality_enabled)) {
+  enabled_waves <- as.integer(mort_base$enabled_waves %||% integer(0))
+  if (anyNA(enabled_waves) || any(!enabled_waves %in% c(3L, 4L)) || anyDuplicated(enabled_waves))
+    stop("mortality_sensitivity$enabled_waves must contain unique Wave III/IV integers only.", call. = FALSE)
+  if (isTRUE(mortality_enabled) && !setequal(enabled_waves, c(3L, 4L)))
+    stop("Production mortality must be enabled for both supported outcome waves III and IV.",
+         call. = FALSE)
+  if (isTRUE(mortality_enabled) && length(enabled_waves)) {
     if (!is.character(cfg$paths$mortality) || length(cfg$paths$mortality) != 1L ||
         is.na(cfg$paths$mortality) || !nzchar(trimws(cfg$paths$mortality)))
       stop("Enabled mortality sensitivity requires cfg$paths$mortality.", call. = FALSE)
-    scalar_text <- c("source_var", "interview_year_var", "derived_death_year_var",
-                     "death_in_window_var", "death_before_outcome_var")
-    for (nm in scalar_text) {
-      z <- mort[[nm]] %||% NULL
-      if (!is.character(z) || length(z) != 1L || is.na(z) || !nzchar(trimws(z)))
-        stop("Enabled mortality sensitivity requires one nonblank ", nm, ".", call. = FALSE)
+    if (!is.character(mort_base$source_var) || length(mort_base$source_var) != 1L ||
+        is.na(mort_base$source_var) || !nzchar(trimws(mort_base$source_var)))
+      stop("Enabled mortality sensitivity requires one nonblank source_var.", call. = FALSE)
+    if (!is.character(mort_base$source_month_var) || length(mort_base$source_month_var) != 1L ||
+        is.na(mort_base$source_month_var) || !nzchar(trimws(mort_base$source_month_var)))
+      stop("Enabled mortality sensitivity requires one nonblank source_month_var.", call. = FALSE)
+    month_limits <- suppressWarnings(as.integer(c(
+      mort_base$valid_month_min, mort_base$valid_month_max)))
+    if (length(month_limits) != 2L || anyNA(month_limits) ||
+        !identical(month_limits, c(1L, 12L)))
+      stop("Mortality valid month limits must be exactly 1 through 12.", call. = FALSE)
+    invalid_month_codes <- suppressWarnings(as.integer(
+      mort_base$invalid_month_codes %||% integer(0)))
+    if (anyNA(invalid_month_codes) || anyDuplicated(invalid_month_codes) ||
+        !997L %in% invalid_month_codes)
+      stop("Mortality invalid_month_codes must be unique integers and include 997.", call. = FALSE)
+    common_gates <- c("native_missing_means_no_death", "fail_on_unrecognized_codes",
+                      "require_complete_linkage", "fail_on_death_with_observed_original_outcome",
+                      "composite_zero_at_death")
+    for (nm in common_gates) {
+      z <- mort_base[[nm]]
+      if (!is.logical(z) || length(z) != 1L || is.na(z))
+        stop("Mortality gate control must be one nonmissing logical: ", nm, call. = FALSE)
     }
-    yr <- as.integer(c(mort$death_year_start, mort$death_year_end,
-                       mort$valid_year_min, mort$valid_year_max))
-    if (length(yr) != 4L || anyNA(yr) || yr[1L] > yr[2L] ||
-        yr[3L] > yr[1L] || yr[4L] < yr[2L])
-      stop("Mortality year-window and valid-year limits are inconsistent.", call. = FALSE)
-    mortality_gate_values <- list(
-      native_missing_means_no_death = mort$native_missing_means_no_death,
-      fail_on_unrecognized_codes = mort$fail_on_unrecognized_codes,
-      require_complete_linkage = mort$require_complete_linkage,
-      fail_on_death_with_observed_original_outcome =
-        mort$fail_on_death_with_observed_original_outcome)
-    bad_mortality_gates <- names(mortality_gate_values)[!vapply(
-      mortality_gate_values, function(z)
-        is.logical(z) && length(z) == 1L && !is.na(z), logical(1))]
-    if (length(bad_mortality_gates))
-      stop("Mortality gate controls must each be one nonmissing logical value: ",
-           paste(bad_mortality_gates, collapse = ", "), ".", call. = FALSE)
-    mortality_roles <- canonical_role_key(c(
-      cfg$analysis$id_var, cfg$analysis$cluster_var, cfg$analysis$strata_var,
-      cfg$analysis$weight_var, cfg$analysis$exposure_var,
-      cfg$analysis$outcome_var, cfg$analysis$outcome_observed_var))
-    if (canonical_role_key(mort$source_var) == canonical_role_key(mort$death_before_outcome_var))
-      stop("Mortality source_var and death_before_outcome_var must be different.", call. = FALSE)
-    if (canonical_role_key(mort$source_var) %in% mortality_roles)
-      stop("mortality source_var conflicts with a core analysis variable.", call. = FALSE)
-    if (canonical_role_key(mort$death_before_outcome_var) %in% mortality_roles)
-      stop("death_before_outcome_var conflicts with a core analysis variable.", call. = FALSE)
-    if (length(mort$no_death_codes %||% numeric(0)) &&
-        any(!is.finite(as.numeric(mort$no_death_codes))))
-      stop("mortality_sensitivity$no_death_codes must be finite numeric codes.", call. = FALSE)
-    if (!is.logical(mort$composite_zero_at_death) ||
-        length(mort$composite_zero_at_death) != 1L ||
-        is.na(mort$composite_zero_at_death))
-      stop("mortality_sensitivity$composite_zero_at_death must be one nonmissing logical value.",
-           call. = FALSE)
-    iv <- as.integer(c(mort$interview_year_valid_min,
-                       mort$interview_year_valid_max))
-    if (length(iv) != 2L || anyNA(iv) || iv[1L] > iv[2L])
-      stop("Mortality interview-year audit limits are invalid.", call. = FALSE)
-    if (!identical(mort$earnings_price_basis %||% "",
-                   "nominal_past_year_dollars_no_inflation_adjustment"))
-      stop(paste0(
-        "mortality_sensitivity$earnings_price_basis must remain ",
-        "'nominal_past_year_dollars_no_inflation_adjustment' for this specification."),
-        call. = FALSE)
-    timing_names <- canonical_role_key(get_mortality_role_vars(cfg))
-    if (anyDuplicated(timing_names))
-      stop("Mortality source/derived/audit variable names must be distinct after canonicalization.",
-           call. = FALSE)
+    for (w in enabled_waves) {
+      mort <- resolve_mortality_spec(cfg, w)
+      scalar_text <- c("derived_death_year_var", "derived_death_month_var",
+                       "death_in_window_var", "death_before_outcome_var",
+                       "timing_status_var", "linkage_audit_csv",
+                       "interview_timing_audit_csv", "contradiction_audit_csv",
+                       "output_csv")
+      for (nm in scalar_text) {
+        z <- mort[[nm]] %||% NULL
+        if (!is.character(z) || length(z) != 1L || is.na(z) || !nzchar(trimws(z)))
+          stop(sprintf("Enabled Wave %d mortality requires one nonblank %s.", w, nm), call. = FALSE)
+      }
+      yr <- as.integer(c(mort$death_year_start, mort$death_year_end,
+                         mort$valid_year_min, mort$valid_year_max))
+      if (length(yr) != 4L || anyNA(yr) || yr[1L] > yr[2L] ||
+          yr[3L] > yr[1L] || yr[4L] < yr[2L])
+        stop(sprintf("Wave %d mortality year-window and valid-year limits are inconsistent.", w), call. = FALSE)
+      raw_spec <- (mort_base$wave_specs %||% list())[[as.character(w)]] %||% list()
+      mode <- as.character(mort$timing_mode %||% "fixed_window")
+      if (length(mode) != 1L || is.na(mode) ||
+          !mode %in% c("fixed_window", "interview_month"))
+        stop(sprintf("Wave %d mortality timing_mode is invalid.", w), call. = FALSE)
+      expected_end <- c(`3` = 2002L, `4` = 2009L)[as.character(w)]
+      if (!identical(mode, "interview_month") ||
+          !identical(as.integer(mort$death_year_end), as.integer(expected_end)))
+        stop(sprintf(
+          "Wave %d mortality must use interview_month timing through %d.",
+          w, as.integer(expected_end)), call. = FALSE)
+      if (!is.null(raw_spec$timing_mode_by_family) ||
+          !is.null(raw_spec$death_year_end_by_family))
+        stop(sprintf(
+          "Wave %d mortality must use one harmonized timing_mode and endpoint across supported outcome families.",
+          w), call. = FALSE)
+      mortality_roles <- canonical_role_key(c(
+        cfg$analysis$id_var, cfg$analysis$cluster_var, cfg$analysis$strata_var,
+        cfg$analysis$weight_var, cfg$analysis$exposure_var,
+        cfg$analysis$outcome_var, cfg$analysis$outcome_observed_var))
+      role_vars <- unique(c(mort$source_var, mort$source_month_var,
+        mort$derived_death_year_var, mort$derived_death_month_var,
+        mort$death_in_window_var, mort$death_before_outcome_var,
+        mort$timing_status_var, mort$interview_year_var %||% character(0),
+        mort$interview_month_var %||% character(0)))
+      if (anyDuplicated(canonical_role_key(role_vars)))
+        stop(sprintf("Wave %d mortality role variables are not unique after canonicalization.", w),
+             call. = FALSE)
+      if (any(canonical_role_key(role_vars) %in% mortality_roles))
+        stop("Mortality role variable conflicts with a core analysis variable.", call. = FALSE)
+
+      if (identical(mode, "interview_month")) {
+        iy <- mort$interview_year_var %||% NULL
+        im <- mort$interview_month_var %||% NULL
+        for (z in list(iy, im)) {
+          if (!is.character(z) || length(z) != 1L || is.na(z) || !nzchar(trimws(z)))
+            stop(sprintf("Wave %d interview-month mortality requires nonblank interview year/month variables.", w),
+                 call. = FALSE)
+        }
+        iy_lim <- suppressWarnings(as.integer(c(
+          mort$interview_year_valid_min, mort$interview_year_valid_max)))
+        im_lim <- suppressWarnings(as.integer(c(
+          mort$interview_month_valid_min, mort$interview_month_valid_max)))
+        if (length(iy_lim) != 2L || anyNA(iy_lim) || iy_lim[1L] > iy_lim[2L])
+          stop(sprintf("Wave %d mortality interview-year limits are invalid.", w), call. = FALSE)
+        if (length(im_lim) != 2L || anyNA(im_lim) ||
+            !identical(im_lim, c(1L, 12L)))
+          stop(sprintf("Wave %d mortality interview-month limits must be 1 through 12.", w),
+               call. = FALSE)
+      }
+    }
   }
 
-  # --- Source-informed exact-code missing classifier ----------------------
-  if (!identical(cfg$preprocessing$missing_classifier %||% "global_source_informed_exact_v1",
-                 "global_source_informed_exact_v1"))
-    stop("preprocessing$missing_classifier must be 'global_source_informed_exact_v1'.", call. = FALSE)
-  if (!identical(cfg$preprocessing$numeric_missing_scheme %||% "dual_indicators", "dual_indicators"))
-    stop("preprocessing$numeric_missing_scheme must remain 'dual_indicators' so numeric general-missing and structural-skip indicators are preserved.", call. = FALSE)
-  if (!is.logical(cfg$preprocessing$global_missing_dictionary_required) ||
-      length(cfg$preprocessing$global_missing_dictionary_required) != 1L ||
-      !is.character(cfg$preprocessing$global_missing_dictionary_native_only_patterns %||% character(0)))
-    stop("Global missing-dictionary enforcement settings are invalid.", call. = FALSE)
-  if ((cfg$preprocessing$auto_questionnaire_max_unique %||% 0L) < 2L ||
-      (cfg$preprocessing$auto_questionnaire_max_unique_prop %||% 0) <= 0 ||
-      (cfg$preprocessing$auto_questionnaire_max_unique_prop %||% 0) > 1 ||
-      (cfg$preprocessing$auto_categorical_max_abs_value %||% 0) <= 0 ||
-      (cfg$preprocessing$auto_integer_like_min_prop %||% 0) <= 0 ||
-      (cfg$preprocessing$auto_integer_like_min_prop %||% 0) > 1 ||
-      (cfg$preprocessing$auto_integer_tolerance %||% 0) <= 0 ||
-      (cfg$preprocessing$auto_special_code_max_digits %||% 0L) < 2L ||
-      (cfg$preprocessing$auto_special_code_max_digits %||% 8L) > 7L ||
-      (cfg$preprocessing$auto_percentage_min_unique %||% 0L) < 2L ||
-      (cfg$preprocessing$auto_percentage_min_span %||% -1) < 0 ||
-      (cfg$preprocessing$auto_dense_small_count_min_unique %||% 0L) < 2L ||
-      (cfg$preprocessing$auto_dense_small_count_max_value %||% 0L) < 1L ||
-      !is.character(cfg$preprocessing$questionnaire_name_patterns %||% character(0)) ||
-      !is.character(cfg$preprocessing$questionnaire_name_exclude_patterns %||% character(0)) ||
-      !is.character(cfg$preprocessing$known_codebook_overlap_vars %||% character(0)) ||
-      !is.character(cfg$preprocessing$nonquestionnaire_long_factors %||% character(0)))
-    stop("Source-informed exact-code classifier settings are invalid.", call. = FALSE)
-  mnar_toggles <- cfg$diagnostics[c(
-    "enable_mnar_breakdown", "enable_manski_bounds", "enable_mnar_calibrated")]
-  bad_mnar_toggles <- names(mnar_toggles)[!vapply(mnar_toggles, function(z)
-    is.logical(z) && length(z) == 1L && !is.na(z), logical(1))]
-  if (length(bad_mnar_toggles))
-    stop("MNAR extension toggles must be scalar nonmissing logical values: ",
-         paste(bad_mnar_toggles, collapse = ", "), call. = FALSE)
-  if (!is.finite(cfg$diagnostics$mnar_breakdown_max_sd) ||
-      cfg$diagnostics$mnar_breakdown_max_sd <= 0)
-    stop("diagnostics$mnar_breakdown_max_sd must be positive and finite.", call. = FALSE)
-  grid_n <- cfg$diagnostics$mnar_breakdown_grid_n
-  if (!is.numeric(grid_n) || length(grid_n) != 1L || is.na(grid_n) ||
-      grid_n < 11L || abs(grid_n - round(grid_n)) > 1e-8)
-    stop("diagnostics$mnar_breakdown_grid_n must be an integer >= 11.", call. = FALSE)
-  probs <- as.numeric(cfg$diagnostics$mnar_calibration_probs)
-  if (length(probs) != 2L || any(!is.finite(probs)) ||
-      probs[1L] <= 0 || probs[2L] >= 1 || probs[1L] >= probs[2L])
-    stop("diagnostics$mnar_calibration_probs must contain two increasing probabilities inside (0,1).",
-         call. = FALSE)
-  B <- cfg$diagnostics$mnar_calibration_boot_reps
-  minB <- cfg$diagnostics$mnar_calibration_min_valid_boot_reps
-  if (!is.numeric(B) || length(B) != 1L || is.na(B) || B < 50L ||
-      abs(B - round(B)) > 1e-8 || !is.numeric(minB) || length(minB) != 1L ||
-      is.na(minB) || minB < 50L || minB > B || abs(minB - round(minB)) > 1e-8)
-    stop("MNAR calibration bootstrap repetitions/minimum-valid repetitions are invalid.",
-         call. = FALSE)
-  boot_seed <- cfg$diagnostics$mnar_calibration_boot_seed
-  if (!is.numeric(boot_seed) || length(boot_seed) != 1L || is.na(boot_seed) ||
-      !is.finite(boot_seed) || abs(boot_seed - round(boot_seed)) > 1e-8)
-    stop("diagnostics$mnar_calibration_boot_seed must be one finite integer.", call. = FALSE)
-  if (!identical(cfg$diagnostics$mnar_calibration_bootstrap_design,
-                 "region_stratified_psu"))
-    stop("diagnostics$mnar_calibration_bootstrap_design must be 'region_stratified_psu'.",
-         call. = FALSE)
-  if (!isTRUE(cfg$diagnostics$mnar_calibration_weighted_quantiles))
-    stop("diagnostics$mnar_calibration_weighted_quantiles must remain TRUE.",
-         call. = FALSE)
-  if (isTRUE(cfg$safety$require_publication_ready_marker %||% TRUE) &&
-      (!isTRUE(cfg$stages$run_diagnostics) || !isTRUE(cfg$diagnostics$save_csvs)))
-    stop("Publication-readiness gating requires diagnostics and diagnostic CSV output.",
-         call. = FALSE)
-  rt <- cfg$runtime %||% list()
-  if (!is.logical(rt$enforce_exact_R_version) || length(rt$enforce_exact_R_version) != 1L ||
-      !is.character(rt$required_R_version) || length(rt$required_R_version) != 1L ||
-      !nzchar(rt$required_R_version) || !is.logical(rt$enforce_exact_package_versions) ||
-      length(rt$enforce_exact_package_versions) != 1L)
-    stop("Runtime-version controls are invalid.", call. = FALSE)
-  if (!is.logical(cfg$global$resume_mode) ||
-      length(cfg$global$resume_mode) != 1L || is.na(cfg$global$resume_mode))
-    stop("global$resume_mode must be one nonmissing logical value.", call. = FALSE)
-  operational_safety <- cfg$safety[c(
-    "require_fresh_primary_output_dir", "allow_output_overwrite",
-    "verify_atomic_writes", "require_publication_ready_marker")]
-  bad_operational_safety <- names(operational_safety)[!vapply(
-    operational_safety, function(z)
-      is.logical(z) && length(z) == 1L && !is.na(z), logical(1))]
-  if (length(bad_operational_safety))
-    stop("Operational safety controls must be scalar nonmissing logical values: ",
-         paste(bad_operational_safety, collapse = ", "), call. = FALSE)
-  expected_versions <- rt$required_package_versions %||% character(0)
-  if (!is.character(expected_versions) || !length(expected_versions) ||
-      is.null(names(expected_versions)) || anyNA(expected_versions) ||
-      any(!nzchar(names(expected_versions))) ||
-      any(!nzchar(trimws(expected_versions))))
-    stop("runtime$required_package_versions must be a nonempty named character vector.",
-         call. = FALSE)
-  allowed_fresh <- cfg$safety$fresh_output_allowed_basenames %||% character(0)
-  if (!is.character(allowed_fresh) || anyNA(allowed_fresh) ||
-      any(!nzchar(trimws(allowed_fresh))) || any(basename(allowed_fresh) != allowed_fresh))
-    stop("safety$fresh_output_allowed_basenames must contain base filenames only.",
-         call. = FALSE)
-  max_path <- cfg$safety$windows_max_path
-  if (!is.numeric(max_path) || length(max_path) != 1L || is.na(max_path) ||
-      max_path < 100L || abs(max_path - round(max_path)) > 1e-8)
-    stop("safety$windows_max_path must be an integer >= 100.", call. = FALSE)
-
-  clip_floors <- as.numeric(cfg$diagnostics$att_g_pi_clip_sensitivity_floors %||% numeric(0))
-  if (length(clip_floors) &&
-      (any(!is.finite(clip_floors)) || any(clip_floors <= 0) || any(clip_floors >= 0.5)))
-    stop("diagnostics$att_g_pi_clip_sensitivity_floors must lie in (0, 0.5).", call. = FALSE)
-
-  primary_bounds <- c(cfg$final_tmle$g_lower, cfg$final_tmle$g_upper,
-                      cfg$final_tmle$pi_lower, cfg$final_tmle$pi_upper)
-  if (any(!is.finite(primary_bounds)) ||
-      cfg$final_tmle$g_lower <= 0 || cfg$final_tmle$g_upper >= 1 ||
-      cfg$final_tmle$g_lower >= cfg$final_tmle$g_upper ||
-      cfg$final_tmle$pi_lower <= 0 || cfg$final_tmle$pi_upper >= 1 ||
-      cfg$final_tmle$pi_lower >= cfg$final_tmle$pi_upper)
-    stop("Primary g/pi clipping bounds must be finite, ordered, and strictly inside (0,1).", call. = FALSE)
-
-  # --- Stage dependency and strict production behavior --------------------
-  if (isTRUE(cfg$stages$run_diagnostics) && !isTRUE(cfg$stages$run_final_cv_tmle))
-    stop("run_diagnostics=TRUE requires run_final_cv_tmle=TRUE because no final-fit cache is defined.", call. = FALSE)
-  if (!isTRUE(cfg$final_tmle$fail_on_nuisance_fallback %||% FALSE))
-    stop("final_tmle$fail_on_nuisance_fallback must remain TRUE for the final production analysis.", call. = FALSE)
-
-  # --- Final TMLE learner libraries ---------------------------------------
-  if (isTRUE(cfg$final_tmle$use_fold_checkpoints))
-    warning("Fold checkpoints are enabled. The fixed first production run uses fresh folds with use_fold_checkpoints=FALSE.", call. = FALSE)
-  expected_protected <- paste0("H1FS", 1:19)
-  if (!isTRUE(cfg$final_tmle$protected_W_preserve_substantive_levels %||% FALSE))
-    stop("final_tmle$protected_W_preserve_substantive_levels must be TRUE for the primary analysis.", call. = FALSE)
-  if (!identical(as.character(cfg$final_tmle$protected_W), expected_protected)) {
-    stop("final_tmle$protected_W must contain exactly H1FS1-H1FS19 in order for the fixed primary analysis.", call. = FALSE)
-  }
-  if (!isTRUE(cfg$final_tmle$protected_W_bypass_screening %||% FALSE))
-    stop("protected_W_bypass_screening must remain TRUE because H1FS1-H1FS19 are mandatory baseline confounders.", call. = FALSE)
-  if (!all(expected_protected %in% get_mandatory_W(cfg)))
-    stop("Every protected H1FS item must also be included in the mandatory W set.", call. = FALSE)
-  if (!tolower(cfg$final_tmle$percentage_primary %||% "prevention_gain") %in%
-      c("prevention_gain", "depression_effect")) {
-    stop("final_tmle$percentage_primary must be 'prevention_gain' or 'depression_effect'.", call. = FALSE)
-  }
-  if (!is.finite(cfg$final_tmle$target_score_tol) || cfg$final_tmle$target_score_tol <= 0 ||
-      !is.finite(cfg$final_tmle$att_eif_center_tol_scaled) || cfg$final_tmle$att_eif_center_tol_scaled <= 0) {
-    stop("Targeting tolerances must be positive finite numbers.", call. = FALSE)
-  }
-  q_bound <- cfg$outcome$continuous_upper_quantile
-  if (!is.finite(q_bound) || q_bound <= 0 || q_bound > 1)
-    stop("outcome$continuous_upper_quantile must be in (0, 1].", call. = FALSE)
-  require_script_md5 <- cfg$global$require_script_md5 %||% FALSE
-  if (!is.logical(require_script_md5) || length(require_script_md5) != 1L ||
-      is.na(require_script_md5))
-    stop("global$require_script_md5 must be one nonmissing logical value.",
-         call. = FALSE)
-  if (isTRUE(require_script_md5) &&
-      (isTRUE(cfg$stages$run_final_cv_tmle) || isTRUE(cfg$stages$run_multiseed_att)))
-    pipeline_script_fingerprint(cfg, strict = TRUE)
-
-  if (isTRUE(cfg$learners$g$use_xgboost_rich %||% FALSE) ||
-      isTRUE(cfg$learners$pi$use_xgboost_rich %||% FALSE))
-    stop("use_xgboost_rich is supported only for Q.", call. = FALSE)
-  rich_cfg <- cfg$learners$xgboost_rich
-  if (isTRUE(cfg$learners$Q$use_xgboost_rich %||% FALSE)) {
-    rich_vals <- c(rich_cfg$ntrees, rich_cfg$max_depth,
-                   rich_cfg$shrinkage, rich_cfg$min_child_weight)
-    if (length(rich_vals) != 4L || any(!is.finite(as.numeric(rich_vals))) ||
-        rich_cfg$ntrees < 1L || rich_cfg$max_depth < 1L ||
-        rich_cfg$shrinkage <= 0 || rich_cfg$min_child_weight < 0)
-      stop("learners$xgboost_rich contains invalid Q-only hyperparameters.", call. = FALSE)
-  }
-  if (isTRUE(cfg$analysis$enforce_expected_sample_gates %||% FALSE)) {
-    selective_gate_flags <- cfg$analysis[c(
-      "enforce_expected_cutpoint_gate", "enforce_expected_treated_gate")]
-    if (length(selective_gate_flags) != 2L ||
-        any(!vapply(selective_gate_flags, function(z)
-          is.logical(z) && length(z) == 1L && !is.na(z), logical(1))))
-      stop("Selective sample-gate flags must be nonmissing scalar logical values.", call. = FALSE)
-
-    invariant_gate_values <- unlist(cfg$analysis[c(
-      "expected_complete_cesd_n", "expected_final_n",
-      "expected_cluster_n", "expected_strata_n")], use.names = TRUE)
-    if (length(invariant_gate_values) != 4L ||
-        any(!is.finite(as.numeric(invariant_gate_values))) ||
-        any(as.numeric(invariant_gate_values) <= 0))
-      stop("Invariant sample-gate values must be positive and finite when enforcement is enabled.", call. = FALSE)
-
-    if (isTRUE(cfg$analysis$enforce_expected_cutpoint_gate) &&
-        (!is.finite(as.numeric(cfg$analysis$expected_exposure_cutpoint)) ||
-         as.numeric(cfg$analysis$expected_exposure_cutpoint) <= 0))
-      stop("expected_exposure_cutpoint must be positive and finite when its gate is enabled.", call. = FALSE)
-    if (isTRUE(cfg$analysis$enforce_expected_treated_gate) &&
-        (!is.finite(as.numeric(cfg$analysis$expected_treated_n)) ||
-         as.numeric(cfg$analysis$expected_treated_n) <= 0))
-      stop("expected_treated_n must be positive and finite when its gate is enabled.", call. = FALSE)
-  }
-  if (!is.finite(cfg$outcome$continuous_bound_eps) || cfg$outcome$continuous_bound_eps < 0)
-    stop("outcome$continuous_bound_eps must be a nonnegative finite number.", call. = FALSE)
-  if (identical(cfg$outcome$family, "Compensation") &&
-      !identical(tolower(cfg$outcome$compensation_transform %||% "identity"), "identity"))
-    warning("The configured Compensation outcome is transformed; ratio and dollar policy translations will be disabled.", call. = FALSE)
-
-  if (!isTRUE(cfg$final_tmle$cluster_aware_internal_cv))
-    stop("final_tmle$cluster_aware_internal_cv must remain TRUE; row-level internal CV is not supported.", call. = FALSE)
-  fold_ctl <- cfg$final_tmle[c("fold_max_attempts", "fold_projected_size_tolerance_prop",
-                                "fold_max_size_ratio", "fold_max_size_deviation_prop",
-                                "fold_internal_max_size_ratio",
-                                "fold_internal_max_size_deviation_prop",
-                                "fold_min_active_cell_n")]
-  if (!is.finite(fold_ctl$fold_max_attempts) || fold_ctl$fold_max_attempts < 1L ||
-      !is.finite(fold_ctl$fold_projected_size_tolerance_prop) ||
-        fold_ctl$fold_projected_size_tolerance_prop < 0 ||
-        fold_ctl$fold_projected_size_tolerance_prop > 0.20 ||
-      !is.finite(fold_ctl$fold_max_size_ratio) || fold_ctl$fold_max_size_ratio <= 1 ||
-      !is.finite(fold_ctl$fold_max_size_deviation_prop) ||
-        fold_ctl$fold_max_size_deviation_prop <= 0 ||
-      !is.finite(fold_ctl$fold_internal_max_size_ratio) ||
-        fold_ctl$fold_internal_max_size_ratio <= 1 ||
-      !is.finite(fold_ctl$fold_internal_max_size_deviation_prop) ||
-        fold_ctl$fold_internal_max_size_deviation_prop <= 0 ||
-      !is.finite(fold_ctl$fold_min_active_cell_n) || fold_ctl$fold_min_active_cell_n < 1L)
-    stop("Whole-PSU fold controls are invalid.", call. = FALSE)
-  if (!identical(cfg$outcome$continuous_cap_qrule %||% "hf8", "hf8"))
-    stop("outcome$continuous_cap_qrule must be 'hf8' for the production specification.", call. = FALSE)
-  if (isTRUE(cfg$outcome$continuous_cap_censoring_adjusted %||% FALSE))
-    stop("The primary pipeline does not implement a censoring-adjusted cap; use a separately labeled full-refit sensitivity.", call. = FALSE)
-  if (isTRUE(cfg$final_tmle$use_epp_cap %||% FALSE))
-    stop("use_epp_cap=TRUE is a legacy raw-count heuristic and is not supported; use the explicit nonprotected-column budget.", call. = FALSE)
-  if (isTRUE(cfg$stages$run_final_cv_tmle) && isTRUE(cfg$safety$stop_if_no_learners)) {
-    libs <- c(Q  = count_enabled_learners(cfg$learners$Q),
-              g  = count_enabled_learners(cfg$learners$g),
-              pi = count_enabled_learners(cfg$learners$pi))
-    empty <- names(libs)[libs == 0L]
-    if (length(empty) > 0L)
-      stop("Final TMLE learner libraries cannot be empty for: ",
-           paste(empty, collapse = ", "), call. = FALSE)
-  }
-  if (isTRUE(cfg$stages$run_final_cv_tmle) &&
-      !isTRUE(cfg$final_tmle$nested_rough_prescreen_in_final_cv) &&
-      is.null(cfg$final_tmle$prespecified_W))
-    stop("Final CV-TMLE requires nested_rough_prescreen_in_final_cv=TRUE (or a non-null prespecified_W) in the pruned production pipeline.", call. = FALSE)
-  if ((cfg$final_tmle$rough_top_n_outcome %||% 0L) < 1L ||
-      (cfg$final_tmle$rough_top_n_missingness %||% 0L) < 0L ||
-      (cfg$final_tmle$rough_top_n_joint_AY %||% 0L) < 0L ||
-      (cfg$final_tmle$rough_top_n_exposure_only %||% 0L) < 0L ||
-      (cfg$final_tmle$rough_top_n_exposure_for_lasso %||% 0L) < 0L ||
-      (cfg$final_tmle$rough_candidate_pool_max %||% 0L) < 1L ||
-      (cfg$final_tmle$rough_max_total_vars %||% 0L) < 1L)
-    stop("Final rough-screen caps must be nonnegative, with positive outcome/pool/final caps.", call. = FALSE)
-  if (isTRUE(cfg$final_tmle$nested_lasso_after_rough) &&
-      (cfg$final_tmle$lasso_screen_folds %||% 0L) < 3L)
-    stop("lasso_screen_folds must be at least 3 when nested_lasso_after_rough=TRUE because cv.glmnet requires at least three folds.", call. = FALSE)
-  if ((cfg$learners$glmnet$internal_folds %||% 0L) < 3L)
-    stop("learners$glmnet$internal_folds must be at least 3.", call. = FALSE)
-  h1mult <- as.numeric(cfg$learners$glmnet_h1fs$h1fs_penalty_multiplier %||% NA_real_)
-  amult <- as.numeric(cfg$learners$glmnet_pi_A$A_penalty_multiplier %||% NA_real_)
-  if (!is.finite(h1mult) || h1mult < 0 || h1mult > 1)
-    stop("learners$glmnet_h1fs$h1fs_penalty_multiplier must lie in [0,1].", call. = FALSE)
-  if (!is.finite(amult) || amult < 0 || amult > 1)
-    stop("learners$glmnet_pi_A$A_penalty_multiplier must lie in [0,1].", call. = FALSE)
-  if (isTRUE(cfg$learners$Q$use_glmnet_h1fs %||% FALSE) ||
-      isTRUE(cfg$learners$pi$use_glmnet_h1fs %||% FALSE))
-    stop("use_glmnet_h1fs is supported only for g.", call. = FALSE)
-  if (isTRUE(cfg$learners$Q$use_glmnet_A_unpenalized %||% FALSE) ||
-      isTRUE(cfg$learners$g$use_glmnet_A_unpenalized %||% FALSE))
-    stop("use_glmnet_A_unpenalized is supported only for pi.", call. = FALSE)
-
-  # --- v6 outcome-family validation ---------------------------------------
-  allowed_families <- c("EducationalAttainment","LaborForceParticipation","UsualHours",
+  # --- Outcome-family validation ------------------------------------------
+  allowed_families <- c("EducationalAttainment","LaborForceParticipation","HoursWorked","UsualHours",
                         "Compensation","HealthStatus","MentalHealth","SubstanceUse",
                         "PassThrough")   # pass-through negative-control outcome family
   if (!cfg$outcome$family %in% allowed_families)
@@ -531,10 +423,24 @@ validate_cfg <- function(cfg) {
   }
 
   waves <- cfg$outcome$waves
-  if (identical(waves, "all")) waves <- 3:5
+  if (identical(waves, "all")) {
+    waves <- supported_outcome_waves(cfg$outcome$family)
+  }
   if (!is.numeric(waves) || any(!waves %in% 3:5))
     stop("cfg$outcome$waves must be integer(s) in 3:5 (post-exposure waves) ",
          "or the string 'all'.", call. = FALSE)
+
+  supported <- supported_outcome_waves(cfg$outcome$family)
+  if (!length(supported))
+    stop(sprintf(
+      "Outcome family '%s' is hard-blocked in this production program.",
+      cfg$outcome$family), call. = FALSE)
+  unsupported <- setdiff(as.integer(waves), supported)
+  if (length(unsupported))
+    stop(sprintf(
+      "Outcome family '%s' is not supported at wave(s) %s; supported wave(s): %s.",
+      cfg$outcome$family, paste(unsupported, collapse = ", "),
+      paste(supported, collapse = ", ")), call. = FALSE)
 
   verified <- vapply(as.integer(waves), function(w)
     is_verified_outcome_spec(cfg, cfg$outcome$family, w), logical(1))
@@ -542,7 +448,7 @@ validate_cfg <- function(cfg) {
     bad_waves <- paste(as.integer(waves)[!verified], collapse = ", ")
     msg_txt <- sprintf(
       paste0("Outcome specification is not production-verified: family='%s', wave(s)=%s. ",
-             "Only verified Wave IV Compensation and explicitly configured PassThrough outcomes ",
+             "Only production-verified family/wave mappings and explicitly configured PassThrough outcomes ",
              "are allowed by default. Verify the codebook mapping, then set ",
              "cfg$safety$allow_unverified_outcome_specs=TRUE deliberately."),
       cfg$outcome$family, bad_waves)

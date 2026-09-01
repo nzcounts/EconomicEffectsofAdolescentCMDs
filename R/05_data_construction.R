@@ -1,13 +1,8 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 3338-5231.
-# Module role: Restricted-data construction and outcomes.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 3) BASE DATA CONSTRUCTION
 # =============================================================================
 # Plain-English role: read the Add Health .xpt files, join them on AID/PSUSCID,
-# then build the exposure (depression) and outcome (raw annual earnings) from raw
-# items. Everything downstream starts from the single main_df produced here.
+# then build the exposure and selected outcome from their source variables.
+# Everything downstream starts from the single main_df produced here.
 
 canonical_join_variable_name <- function(x) {
   x <- trimws(as.character(x))
@@ -231,12 +226,17 @@ canonicalize_mandatory_W_columns <- function(df, cfg) {
 
 get_mortality_role_vars <- function(cfg) {
   mort <- cfg$mortality_sensitivity %||% list()
-  unique(c(
-    mort$source_var %||% character(0),
-    mort$interview_year_var %||% character(0),
-    mort$derived_death_year_var %||% character(0),
-    mort$death_in_window_var %||% character(0),
-    mort$death_before_outcome_var %||% character(0)))
+  specs <- mort$wave_specs %||% list()
+  wave_vars <- unlist(lapply(specs, function(z) c(
+    z$interview_year_var %||% character(0),
+    z$interview_month_var %||% character(0),
+    z$derived_death_year_var %||% character(0),
+    z$derived_death_month_var %||% character(0),
+    z$death_in_window_var %||% character(0),
+    z$death_before_outcome_var %||% character(0),
+    z$timing_status_var %||% character(0))), use.names = FALSE)
+  unique(c(mort$source_var %||% character(0),
+           mort$source_month_var %||% character(0), wave_vars))
 }
 
 build_candidate_alias_audit <- function(df, cfg) {
@@ -744,7 +744,7 @@ add_dual_missingness_indicators <- function(data, factor_vars, numeric_vars, cfg
 }
 
 # =============================================================================
-# OUTCOME FAMILY DISPATCHER (v6)
+# OUTCOME FAMILY DISPATCHER
 # =============================================================================
 # Each family has a constructor that takes (main_df, wave, family_cfg, outcome_cfg)
 # and returns a numeric or integer vector Y of length nrow(main_df), with NA
@@ -754,7 +754,7 @@ add_dual_missingness_indicators <- function(data, factor_vars, numeric_vars, cfg
 # constructor to call, writes the result to main_df[[cfg$analysis$outcome_var]],
 # and sets the censoring indicator.
 
-# ---- Placeholder helper: read the Wave-N in-home file when available --------
+# ---- Read the configured in-home file for an outcome wave -------------------
 read_wave_inhome <- function(wave, cfg) {
   path_name <- paste0("wave", wave, "_inhome")
   if (!path_name %in% names(cfg$paths)) {
@@ -769,123 +769,326 @@ read_wave_inhome <- function(wave, cfg) {
 }
 
 # ---- Educational Attainment (nested binary) --------------------------------
-# PLACEHOLDER: fill in the recoding rules for your Add Health item values.
+# Wave III is attainment-to-date. H3ED5 establishes college graduation;
+# H3ED1 values 13-17 or college graduation establish some college; and either
+# H3ED2/H3ED3=1 or any higher threshold establishes high-school completion.
+# Wave IV uses the verified nested thresholds of H4ED2.
 construct_outcome_educational_attainment <- function(main_df, wave, family_cfg,
                                                     outcome_cfg, member, pipeline_cfg = NULL) {
+  wave <- as.integer(wave)
   message(sprintf("    [outcome] Educational Attainment, wave %d, member = '%s'.", wave, member))
   src <- family_cfg$sources[[as.character(wave)]]
-  if (is.null(src)) {
-    warning(sprintf("EducationalAttainment source variable for wave %d is not defined in cfg.", wave))
-    return(rep(NA_real_, nrow(main_df)))
+  if (is.null(src))
+    stop(sprintf("EducationalAttainment is not configured for wave %d.", wave), call. = FALSE)
+  allowed_members <- c("at_least_hs", "at_least_some_college",
+                       "at_least_college_grad")
+  if (!member %in% allowed_members)
+    stop(sprintf("Unknown EducationalAttainment member: %s", member), call. = FALSE)
+  main_df <- join_outcome_fields(
+    main_df, wave, unname(src), pipeline_cfg,
+    sprintf("Wave-%d education source", wave))
+
+  if (identical(wave, 3L)) {
+    required_roles <- c("highest_grade", "high_school_equivalency",
+                        "high_school_diploma", "college_graduate")
+    if (!is.character(src) || any(!required_roles %in% names(src)))
+      stop("Wave-III education requires the four named H3ED1/H3ED2/H3ED3/H3ED5 sources.",
+           call. = FALSE)
+    h1_raw <- main_df[[unname(src["highest_grade"])]]
+    h2_raw <- main_df[[unname(src["high_school_equivalency"])]]
+    h3_raw <- main_df[[unname(src["high_school_diploma"])]]
+    h5_raw <- main_df[[unname(src["college_graduate"])]]
+    h1 <- to_numeric_codes(h1_raw); h2 <- to_numeric_codes(h2_raw)
+    h3 <- to_numeric_codes(h3_raw); h5 <- to_numeric_codes(h5_raw)
+    assert_only_known_codes(h1_raw, c(0:22, 96L, 98L, 99L), "H3ED1")
+    assert_only_known_codes(h2_raw, c(0L, 1L, 6L, 8L, 9L), "H3ED2")
+    assert_only_known_codes(h3_raw, c(0L, 1L, 6L, 8L, 9L), "H3ED3")
+    assert_only_known_codes(h5_raw, c(0L, 1L, 6L, 8L, 9L), "H3ED5")
+
+    h1_observed <- is.finite(h1) & !(h1 %in% c(96L, 98L, 99L))
+    h2_observed <- is.finite(h2) & !(h2 %in% c(6L, 8L, 9L))
+    h3_observed <- is.finite(h3) & !(h3 %in% c(6L, 8L, 9L))
+    h5_observed <- is.finite(h5) & !(h5 %in% c(6L, 8L, 9L))
+    grade_some_college <- h1_observed & h1 > 12 & h1 < 18
+    grade_above_rule <- h1_observed & h1 >= 18
+    education_conflict <- grade_above_rule & h5_observed & h5 == 0L
+
+    college_grad <- rep(NA_integer_, nrow(main_df))
+    college_grad[h5_observed & h5 == 1L] <- 1L
+    college_grad[h5_observed & h5 == 0L & !education_conflict] <- 0L
+
+    some_college <- rep(NA_integer_, nrow(main_df))
+    some_college[grade_some_college | college_grad %in% 1L] <- 1L
+    some_college[h5_observed & h5 == 0L & h1_observed & h1 <= 12L] <- 0L
+
+    high_school <- rep(NA_integer_, nrow(main_df))
+    high_school[(h2_observed & h2 == 1L) |
+                (h3_observed & h3 == 1L) |
+                some_college %in% 1L | college_grad %in% 1L] <- 1L
+    high_school[h2_observed & h2 == 0L & h3_observed & h3 == 0L &
+                some_college %in% 0L] <- 0L
+
+    # These assignments make nesting explicit even if a lower-threshold source
+    # is missing: a verified higher attainment necessarily establishes lower
+    # attainment. No lower-threshold value is allowed to overturn it.
+    some_college[college_grad %in% 1L] <- 1L
+    high_school[some_college %in% 1L | college_grad %in% 1L] <- 1L
+    Y <- switch(member,
+      at_least_hs = high_school,
+      at_least_some_college = some_college,
+      at_least_college_grad = college_grad)
+    nested_violations <- sum(
+      (college_grad == 1L & some_college != 1L) |
+      (some_college == 1L & high_school != 1L), na.rm = TRUE)
+    audit <- data.frame(
+      metric = c("definition", "member", "primary", "n_observed", "n_one",
+                 "n_zero", "n_missing", "n_h3ed1_13_to_17",
+                 "n_college_grad_establishes_some_college",
+                 "n_higher_attainment_establishes_hs",
+                 "n_h3ed1_18_to_22_h3ed5_zero_conflict",
+                 "n_nested_violations"),
+      value = c("Wave III attainment-to-date nested binary", member, "TRUE",
+                sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE),
+                sum(Y == 0L, na.rm = TRUE), sum(is.na(Y)),
+                sum(grade_some_college), sum(college_grad == 1L, na.rm = TRUE),
+                sum(some_college == 1L | college_grad == 1L, na.rm = TRUE),
+                sum(education_conflict), nested_violations),
+      stringsAsFactors = FALSE)
+  } else if (identical(wave, 4L)) {
+    if (!is.character(src) || length(src) != 1L || !identical(unname(src), "H4ED2"))
+      stop("Wave-IV education requires H4ED2 as its sole source.", call. = FALSE)
+    raw_source <- main_df[[unname(src)]]
+    raw <- to_numeric_codes(raw_source)
+    assert_only_known_codes(raw_source, c(0:13, 96L, 98L), "H4ED2")
+    observed <- is.finite(raw) & raw %in% 0:13
+    threshold <- switch(member,
+      at_least_hs = 3L,
+      at_least_some_college = 6L,
+      at_least_college_grad = 7L)
+    Y <- rep(NA_integer_, nrow(main_df))
+    Y[observed] <- as.integer(raw[observed] >= threshold)
+    audit <- data.frame(
+      metric = c("definition", "member", "primary", "source", "threshold",
+                 "n_observed", "n_one", "n_zero", "n_missing",
+                 "n_nested_violations"),
+      value = c("Wave IV H4ED2 nested binary", member, "TRUE", "H4ED2",
+                threshold, sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE),
+                sum(Y == 0L, na.rm = TRUE), sum(is.na(Y)), 0L),
+      stringsAsFactors = FALSE)
+  } else {
+    stop("EducationalAttainment is production-configured only for waves III and IV.",
+         call. = FALSE)
   }
-  # Attach the source variable if not already present
-  if (!src %in% names(main_df)) {
-    if (is.null(pipeline_cfg)) stop("Outcome constructor requires the full pipeline configuration to read its source file.", call. = FALSE)
-    inhome <- read_wave_inhome(wave, pipeline_cfg)
-    id_var <- pipeline_cfg$analysis$id_var
-    assert_required_columns(inhome, c(id_var, src), sprintf("wave%d inhome", wave))
-    main_df <- left_join_unique(
-      main_df, inhome %>% dplyr::select(dplyr::all_of(c(id_var, src))), id_var,
-      x_label = "main_df", y_label = sprintf("wave%d outcome source", wave))
-  }
-  raw <- suppressWarnings(as.numeric(as.character(main_df[[src]])))
-  # PLACEHOLDER threshold coding: update these numeric cutoffs to match your
-  # Add Health coding scheme for this source variable. The values below are
-  # illustrative and MUST be verified against the codebook.
-  Y <- switch(member,
-    at_least_hs           = as.integer(raw >= 2),
-    at_least_some_college = as.integer(raw >= 4),
-    at_least_college_grad = as.integer(raw >= 6),
-    some_grad_school      = as.integer(raw >= 7),
-    stop(sprintf("Unknown EducationalAttainment member: %s", member), call. = FALSE))
-  Y[!is.finite(raw)] <- NA_integer_
+  if (!any(!is.na(Y)))
+    stop("EducationalAttainment constructor produced no observed outcomes.", call. = FALSE)
   message(sprintf("    [outcome] Constructed %d observed, %d missing. Prevalence: %.1f%%.",
     sum(!is.na(Y)), sum(is.na(Y)), 100 * mean(Y, na.rm = TRUE)))
-  Y
+  list(Y = Y, audit = audit,
+       support = list(natural_lower = 0, natural_upper = 1,
+                      lower_rule = "fixed_binary", upper_rule = "fixed_binary"))
 }
 
 # ---- Labor Force Participation (binary) -----------------------------------
-# PLACEHOLDER: fill in the recoding rule.
-construct_outcome_labor_force_participation <- function(main_df, wave, family_cfg,
-                                                       outcome_cfg, member, pipeline_cfg = NULL) {
-  message(sprintf("    [outcome] Labor Force Participation, wave %d.", wave))
-  src <- family_cfg$sources[[as.character(wave)]]
-  if (is.null(src)) {
-    warning(sprintf("LaborForceParticipation source for wave %d is not defined.", wave))
-    return(rep(NA_real_, nrow(main_df)))
-  }
-  if (!src %in% names(main_df)) {
-    if (is.null(pipeline_cfg)) stop("Outcome constructor requires the full pipeline configuration to read its source file.", call. = FALSE)
-    inhome <- read_wave_inhome(wave, pipeline_cfg)
-    id_var <- pipeline_cfg$analysis$id_var
-    assert_required_columns(inhome, c(id_var, src), sprintf("wave%d inhome", wave))
-    main_df <- left_join_unique(
-      main_df, inhome %>% dplyr::select(dplyr::all_of(c(id_var, src))), id_var,
-      x_label = "main_df", y_label = sprintf("wave%d outcome source", wave))
-  }
-  raw <- suppressWarnings(as.numeric(as.character(main_df[[src]])))
-  # the previous body silently coded EVERY finite value other
-  # than 1 (including refusal/DK/legitimate-skip codes) as 0, i.e. it miscoded
-  # missing as non-participation. Require an EXPLICIT codebook mapping and
-  # refuse to construct LFP otherwise, so it can never run on a guessed rule:
-  # family_cfg$codes$participate = codes meaning "in labor force / working" -> 1
-  # family_cfg$codes$nonparticipate = codes meaning "not in labor force" -> 0
-  # family_cfg$codes$missing = codes meaning refused / DK / skip / missing -> NA
-  codes <- family_cfg$codes
-  if (is.null(codes) || is.null(codes$participate) || is.null(codes$nonparticipate)) {
-    stop(sprintf(paste0(
-      "LaborForceParticipation has no codebook mapping. Set family_cfg$codes$participate, ",
-      "$nonparticipate (and $missing) for source '%s' (wave %d) from the Add Health codebook ",
-      "before constructing LFP. Refusing to guess (would miscode missing as 0)."), src, wave),
-      call. = FALSE)
-  }
-  Y <- rep(NA_integer_, length(raw))
-  Y[is.finite(raw) & raw %in% codes$participate]    <- 1L
-  Y[is.finite(raw) & raw %in% codes$nonparticipate] <- 0L
-  # Any finite value not in participate/nonparticipate/missing is an UNMAPPED
-  # code -- fail loudly rather than silently dropping or zero-coding it.
-  mapped   <- c(codes$participate, codes$nonparticipate, codes$missing)
-  unmapped <- unique(raw[is.finite(raw) & !(raw %in% mapped)])
-  if (length(unmapped) > 0L) {
-    stop(sprintf("LaborForceParticipation source '%s' (wave %d) has unmapped finite codes: %s. Add them to family_cfg$codes.",
-      src, wave, paste(sort(unmapped), collapse = ", ")), call. = FALSE)
-  }
-  message(sprintf("    [outcome] Constructed %d observed (%d in-LF, %d not-in-LF), %d missing. Participation: %.1f%%.",
-    sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE), sum(Y == 0L, na.rm = TRUE),
-    sum(is.na(Y)), 100 * mean(Y, na.rm = TRUE)))
-  Y
+join_outcome_fields <- function(main_df, wave, vars, pipeline_cfg, label) {
+  vars <- unique(as.character(vars))
+  vars <- vars[!is.na(vars) & nzchar(vars)]
+  need <- setdiff(vars, names(main_df))
+  if (!length(need)) return(main_df)
+  if (is.null(pipeline_cfg))
+    stop(label, " requires the full pipeline configuration to read its source file.", call. = FALSE)
+  inhome <- read_wave_inhome(wave, pipeline_cfg)
+  id_var <- pipeline_cfg$analysis$id_var
+  assert_required_columns(inhome, c(id_var, need), sprintf("wave%d inhome", wave))
+  left_join_unique(
+    main_df, inhome %>% dplyr::select(dplyr::all_of(c(id_var, need))), id_var,
+    x_label = "main_df", y_label = label)
 }
 
-# ---- Usual Hours (continuous) ---------------------------------------------
-# PLACEHOLDER: fill in the recoding rule.
-construct_outcome_usual_hours <- function(main_df, wave, family_cfg, outcome_cfg, member, pipeline_cfg = NULL) {
-  message(sprintf("    [outcome] Usual Hours, wave %d.", wave))
+assert_only_known_codes <- function(x, known, variable, allow_native_missing = TRUE) {
+  z <- to_numeric_codes(x)
+  native <- character_native_missing_mask(x)
+  bad <- is.finite(z) & !(z %in% known)
+  if (any(bad))
+    stop(sprintf("%s contains unmapped finite code(s): %s.", variable,
+      paste(head(sort(unique(z[bad])), 20L), collapse = ", ")), call. = FALSE)
+  if (!isTRUE(allow_native_missing) && any(native))
+    stop(variable, " contains native missing values but none are permitted.", call. = FALSE)
+  invisible(z)
+}
+
+construct_outcome_labor_force_participation <- function(main_df, wave, family_cfg,
+                                                       outcome_cfg, member, pipeline_cfg = NULL) {
+  wave <- as.integer(wave)
+  if (!identical(wave, 4L))
+    stop("LaborForceParticipation is production-configured only for Wave IV.",
+         call. = FALSE)
+  message(sprintf("    [outcome] Labor Force Participation, wave %d.", wave))
   src <- family_cfg$sources[[as.character(wave)]]
-  if (is.null(src)) {
-    warning(sprintf("UsualHours source for wave %d is not defined.", wave))
-    return(rep(NA_real_, nrow(main_df)))
-  }
-  if (!src %in% names(main_df)) {
-    if (is.null(pipeline_cfg)) stop("Outcome constructor requires the full pipeline configuration to read its source file.", call. = FALSE)
-    inhome <- read_wave_inhome(wave, pipeline_cfg)
-    id_var <- pipeline_cfg$analysis$id_var
-    assert_required_columns(inhome, c(id_var, src), sprintf("wave%d inhome", wave))
-    main_df <- left_join_unique(
-      main_df, inhome %>% dplyr::select(dplyr::all_of(c(id_var, src))), id_var,
-      x_label = "main_df", y_label = sprintf("wave%d outcome source", wave))
-  }
-  raw <- suppressWarnings(as.numeric(as.character(main_df[[src]])))
-  # PLACEHOLDER: treat explicit refusal codes (>= 996) as missing.
-  Y <- ifelse(is.finite(raw) & raw < 996, raw, NA_real_)
-  message(sprintf("    [outcome] Constructed %d observed, %d missing. Hours range: [%s, %s].",
-    sum(!is.na(Y)), sum(is.na(Y)),
-    ifelse(any(!is.na(Y)), sprintf("%.1f", min(Y, na.rm = TRUE)), "NA"),
-    ifelse(any(!is.na(Y)), sprintf("%.1f", max(Y, na.rm = TRUE)), "NA")))
-  Y
+  if (is.null(src)) stop(sprintf("LaborForceParticipation is not configured for wave %d.", wave), call. = FALSE)
+  main_df <- join_outcome_fields(main_df, wave, unname(src), pipeline_cfg,
+                                 sprintf("Wave-%d LFP source", wave))
+  Y <- rep(NA_integer_, nrow(main_df))
+
+  if (wave == 3L) {
+    cc <- family_cfg$wave3_codes
+    h7 <- to_numeric_codes(main_df[[unname(src["current_work"])]])
+    known <- unique(c(cc$work_yes, cc$work_no, cc$missing))
+    assert_only_known_codes(main_df[[unname(src["current_work"])]], known, "H3LM7")
+    Y[h7 == cc$work_yes] <- 1L
+    Y[h7 == cc$work_no] <- 0L
+    audit <- data.frame(
+      metric = c("definition", "n_observed", "n_one", "n_zero", "n_missing",
+                 "note"),
+      value = c("employment_10plus_proxy", sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE),
+                sum(Y == 0L, na.rm = TRUE), sum(is.na(Y)),
+                "Wave III cannot distinguish unemployed job-seekers from other nonworkers with this verified item"),
+      stringsAsFactors = FALSE)
+  } else if (wave == 4L) {
+    cc <- family_cfg$wave4_codes
+    h6 <- to_numeric_codes(main_df[[unname(src["first_job_current"])]])
+    h11 <- to_numeric_codes(main_df[[unname(src["current_work"])]])
+    h14 <- to_numeric_codes(main_df[[unname(src["current_status"])]])
+    assert_only_known_codes(main_df[[unname(src["first_job_current"])]],
+      unique(c(0L, cc$first_job_yes, cc$lm6_missing)), "H4LM6")
+    assert_only_known_codes(main_df[[unname(src["current_work"])]],
+      unique(c(cc$current_work_no, cc$current_work_yes, cc$lm11_missing)), "H4LM11")
+    assert_only_known_codes(main_df[[unname(src["current_status"])]],
+      unique(c(1:10, cc$lm14_missing)), "H4LM14")
+    # Current employment can be established upstream by H4LM6=1, which
+    # legitimately skips H4LM11. Otherwise H4LM11=1 establishes employment.
+    Y[h6 == cc$first_job_yes | h11 == cc$current_work_yes] <- 1L
+    idx <- is.na(Y) & h11 == cc$current_work_no
+    Y[idx & h14 %in% cc$in_labor_force_status] <- 1L
+    Y[idx & h14 %in% cc$out_labor_force_status] <- 0L
+    audit <- data.frame(
+      metric = c("definition", "n_observed", "n_one", "n_zero", "n_missing",
+                 "n_h4lm6_employed", "n_h4lm11_employed",
+                 "n_status_in_lf", "n_status_out_lf", "n_status_other_unresolved"),
+      value = c("route_aware_lfp", sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE),
+                sum(Y == 0L, na.rm = TRUE), sum(is.na(Y)),
+                sum(h6 == cc$first_job_yes, na.rm = TRUE),
+                sum(h11 == cc$current_work_yes, na.rm = TRUE),
+                sum(h11 == cc$current_work_no & h14 %in% cc$in_labor_force_status, na.rm = TRUE),
+                sum(h11 == cc$current_work_no & h14 %in% cc$out_labor_force_status, na.rm = TRUE),
+                sum(h11 == cc$current_work_no & h14 == cc$unresolved_status, na.rm = TRUE)),
+      stringsAsFactors = FALSE)
+  } else stop("LaborForceParticipation is production-configured only for Wave IV.", call. = FALSE)
+
+  if (!any(!is.na(Y))) stop("LaborForceParticipation constructor produced no observed outcomes.", call. = FALSE)
+  message(sprintf("    [outcome] LFP observed=%d, one=%d, zero=%d, missing=%d.",
+    sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE), sum(Y == 0L, na.rm = TRUE), sum(is.na(Y))))
+  list(Y = Y, audit = audit,
+       support = list(natural_lower = 0, natural_upper = 1,
+                      lower_rule = "fixed_binary", upper_rule = "fixed_binary"))
+}
+
+# ---- Hours Worked (continuous) ---------------------------------------------
+construct_outcome_hours_worked <- function(main_df, wave, family_cfg, outcome_cfg,
+                                           member, pipeline_cfg = NULL) {
+  wave <- as.integer(wave)
+  if (!identical(wave, 4L))
+    stop("HoursWorked is production-configured only for Wave IV.", call. = FALSE)
+  message(sprintf("    [outcome] Hours Worked, wave %d.", wave))
+  src <- family_cfg$sources[[as.character(wave)]]
+  if (is.null(src)) stop(sprintf("HoursWorked is not configured for wave %d.", wave), call. = FALSE)
+  main_df <- join_outcome_fields(main_df, wave, unname(src), pipeline_cfg,
+                                 sprintf("Wave-%d hours source", wave))
+  cap <- as.numeric(family_cfg$cap_hours %||% 120)
+  if (!is.finite(cap) || cap <= 0) stop("HoursWorked cap_hours must be positive and finite.", call. = FALSE)
+  Y_uncapped <- rep(NA_real_, nrow(main_df))
+
+  if (wave == 3L) {
+    cc <- family_cfg$wave3_codes
+    h7 <- to_numeric_codes(main_df[[unname(src["current_work"])]])
+    h16 <- to_numeric_codes(main_df[[unname(src["main_job_hours"])]])
+    assert_only_known_codes(main_df[[unname(src["current_work"])]],
+      unique(c(cc$work_yes, cc$work_no, cc$work_missing)), "H3LM7")
+    observed_min <- as.numeric(cc$hours_observed_min %||% cc$hours_valid_min)
+    known_h <- c(seq(observed_min, cc$hours_valid_max), cc$hours_missing)
+    assert_only_known_codes(main_df[[unname(src["main_job_hours"])]], known_h, "H3LM16")
+    Y_uncapped[h7 == cc$work_no] <- 0
+    worker <- h7 == cc$work_yes
+    valid_hours <- is.finite(h16) & h16 >= cc$hours_valid_min & h16 <= cc$hours_valid_max
+    inconsistent_low <- worker & is.finite(h16) &
+      h16 >= observed_min & h16 < cc$hours_valid_min
+    Y_uncapped[worker & valid_hours] <- h16[worker & valid_hours]
+    route <- ifelse(h7 == cc$work_no, "not_working_zero",
+                    ifelse(worker & valid_hours, "current_main_job_hours",
+                    ifelse(inconsistent_low, "worker_hours_below_10_unresolved", "missing")))
+    n_low <- sum(inconsistent_low, na.rm = TRUE)
+  } else if (wave == 4L) {
+    cc <- family_cfg$wave4_codes
+    h6 <- to_numeric_codes(main_df[[unname(src["first_job_current"])]])
+    h11 <- to_numeric_codes(main_df[[unname(src["current_work"])]])
+    h12 <- to_numeric_codes(main_df[[unname(src["current_jobs"])]])
+    h13 <- to_numeric_codes(main_df[[unname(src["total_hours"])]])
+    h19 <- to_numeric_codes(main_df[[unname(src["primary_job_hours"])]])
+    assert_only_known_codes(main_df[[unname(src["first_job_current"])]], c(0L,1L,6L,7L), "H4LM6")
+    assert_only_known_codes(main_df[[unname(src["current_work"])]], c(0L,1L,5L,6L,7L), "H4LM11")
+    assert_only_known_codes(main_df[[unname(src["current_jobs"])]],
+      unique(c(cc$current_jobs_valid, cc$current_jobs_missing)), "H4LM12")
+    assert_only_known_codes(main_df[[unname(src["total_hours"])]],
+      unique(c(seq(cc$total_hours_valid_min, cc$total_hours_valid_max), cc$total_hours_missing)), "H4LM13")
+    assert_only_known_codes(main_df[[unname(src["primary_job_hours"])]],
+      unique(c(seq(cc$primary_hours_valid_min, cc$primary_hours_valid_max), cc$primary_hours_missing)), "H4LM19")
+    working <- h6 == cc$first_job_yes | h11 == cc$current_work_yes
+    nonworking <- !working & h11 == cc$current_work_no
+    Y_uncapped[nonworking] <- 0
+    total_route <- working & h12 %in% cc$current_jobs_total_hours_route
+    one <- working & h12 == 1
+    valid_total <- is.finite(h13) & h13 >= cc$total_hours_valid_min & h13 <= cc$total_hours_valid_max
+    valid_primary <- is.finite(h19) & h19 >= cc$primary_hours_valid_min & h19 <= cc$primary_hours_valid_max
+    Y_uncapped[total_route & valid_total] <- h13[total_route & valid_total]
+    # Deliberately no H4LM19 fallback for respondents routed to H4LM13 with a
+    # missing total: primary-job hours would understate total current weekly hours.
+    # H4LM12=98 (unknown number of current jobs) is explicitly routed to H4LM13
+    # by the Wave-IV questionnaire and therefore uses a valid total if reported.
+    Y_uncapped[one & valid_primary] <- h19[one & valid_primary]
+    route <- ifelse(nonworking, "not_working_zero",
+             ifelse(total_route & valid_total, "multiple_or_unknown_jobs_total_h4lm13",
+             ifelse(one & valid_primary, "one_job_h4lm19", "missing")))
+    n_low <- 0L
+  } else stop("HoursWorked is production-configured only for Wave IV.", call. = FALSE)
+
+  Y <- Y_uncapped
+  Y[is.finite(Y)] <- pmin(Y[is.finite(Y)], cap)
+  n_capped <- sum(is.finite(Y_uncapped) & Y_uncapped > cap)
+  if (any(is.finite(Y) & (Y < 0 | Y > cap)))
+    stop("HoursWorked escaped the configured [0, cap] support.", call. = FALSE)
+  audit <- data.frame(
+    metric = c("definition", "cap_hours", "n_observed", "n_missing", "n_zero",
+               "n_capped", "n_wave3_worker_hours_below_10",
+               "n_route_not_working_zero", "n_route_primary_or_main_job",
+               "n_route_multiple_jobs_total", "n_route_worker_hours_below_10_unresolved",
+               "n_route_missing"),
+    value = c("unconditional_current_weekly_hours", cap, sum(is.finite(Y)), sum(!is.finite(Y)),
+              sum(Y == 0, na.rm = TRUE), n_capped, n_low,
+              sum(route == "not_working_zero", na.rm = TRUE),
+              sum(route %in% c("current_main_job_hours", "one_job_h4lm19"), na.rm = TRUE),
+              sum(route == "multiple_or_unknown_jobs_total_h4lm13", na.rm = TRUE),
+              sum(route == "worker_hours_below_10_unresolved", na.rm = TRUE),
+              sum(route == "missing", na.rm = TRUE)),
+    stringsAsFactors = FALSE)
+  message(sprintf("    [outcome] Hours observed=%d, zero=%d, missing=%d, capped=%d; range=[%s,%s].",
+    sum(is.finite(Y)), sum(Y == 0, na.rm = TRUE), sum(!is.finite(Y)), n_capped,
+    ifelse(any(is.finite(Y)), format(min(Y, na.rm=TRUE)), "NA"),
+    ifelse(any(is.finite(Y)), format(max(Y, na.rm=TRUE)), "NA")))
+  list(Y = Y, audit = audit, uncapped = Y_uncapped,
+       support = list(natural_lower = 0, natural_upper = cap,
+                      lower_rule = "natural", upper_rule = "fixed"))
+}
+
+# Route the UsualHours function name to the HoursWorked constructor.
+construct_outcome_usual_hours <- function(main_df, wave, family_cfg, outcome_cfg, member, pipeline_cfg = NULL) {
+  stop("UsualHours is hard-blocked; use the verified Wave-IV HoursWorked outcome.",
+       call. = FALSE)
 }
 
 # ---- Compensation (continuous; log-transformed when configured) -----------
 construct_outcome_compensation <- function(main_df, wave, family_cfg, outcome_cfg, member, pipeline_cfg = NULL) {
+  wave <- as.integer(wave)
+  if (!identical(wave, 4L))
+    stop("Compensation is production-configured only for Wave IV.", call. = FALSE)
   message(sprintf("    [outcome] Compensation, wave %d.", wave))
   src <- family_cfg$sources[[as.character(wave)]]
   if (is.null(src)) {
@@ -972,47 +1175,49 @@ construct_outcome_compensation <- function(main_df, wave, family_cfg, outcome_cf
   )
 }
 
-# ---- Health Status (nested binary) ----------------------------------------
-# PLACEHOLDER: Add Health self-rated health uses 1=Excellent ... 5=Poor.
-# We invert below so that "at least good" means a healthier rating.
+# ---- Health Status (binary) -----------------------------------------------
+# Add Health self-rated health uses 1=Excellent through 5=Poor. At least good
+# is 1 for 1-3 and 0 for 4-5; refusal/DK/nonresponse codes remain missing.
 construct_outcome_health_status <- function(main_df, wave, family_cfg, outcome_cfg, member, pipeline_cfg = NULL) {
+  wave <- as.integer(wave)
   message(sprintf("    [outcome] Health Status, wave %d, member = '%s'.", wave, member))
   src <- family_cfg$sources[[as.character(wave)]]
-  if (is.null(src)) {
-    warning(sprintf("HealthStatus source for wave %d is not defined.", wave))
-    return(rep(NA_real_, nrow(main_df)))
-  }
-  if (!src %in% names(main_df)) {
-    if (is.null(pipeline_cfg)) stop("Outcome constructor requires the full pipeline configuration to read its source file.", call. = FALSE)
-    inhome <- read_wave_inhome(wave, pipeline_cfg)
-    id_var <- pipeline_cfg$analysis$id_var
-    assert_required_columns(inhome, c(id_var, src), sprintf("wave%d inhome", wave))
-    main_df <- left_join_unique(
-      main_df, inhome %>% dplyr::select(dplyr::all_of(c(id_var, src))), id_var,
-      x_label = "main_df", y_label = sprintf("wave%d outcome source", wave))
-  }
-  raw <- suppressWarnings(as.numeric(as.character(main_df[[src]])))
-  # Treat refusal/DK codes (>= 6) as missing. 1=Excellent, 5=Poor.
-  raw[!is.finite(raw) | raw >= 6] <- NA_real_
-  Y <- switch(member,
-    at_least_fair      = as.integer(raw <= 4),   # fair, good, very good, excellent
-    at_least_good      = as.integer(raw <= 3),   # good, very good, excellent
-    at_least_very_good = as.integer(raw <= 2),   # very good, excellent
-    excellent          = as.integer(raw <= 1),
-    stop(sprintf("Unknown HealthStatus member: %s", member), call. = FALSE))
-  Y[is.na(raw)] <- NA_integer_
+  if (!wave %in% c(3L, 4L) || is.null(src))
+    stop(sprintf("HealthStatus is not configured for wave %d.", wave), call. = FALSE)
+  if (!identical(member, "at_least_good"))
+    stop(sprintf("Unknown HealthStatus member: %s", member), call. = FALSE)
+  main_df <- join_outcome_fields(
+    main_df, wave, unname(src), pipeline_cfg,
+    sprintf("Wave-%d health-status source", wave))
+  raw_source <- main_df[[unname(src)]]
+  raw <- to_numeric_codes(raw_source)
+  assert_only_known_codes(raw_source, c(1:5, 96L, 98L, 99L), paste0("H", wave, "GH1"))
+  observed <- is.finite(raw) & raw %in% 1:5
+  Y <- rep(NA_integer_, nrow(main_df))
+  Y[observed] <- as.integer(raw[observed] %in% 1:3)
+  if (!any(!is.na(Y)))
+    stop("HealthStatus constructor produced no observed outcomes.", call. = FALSE)
+  audit <- data.frame(
+    metric = c("definition", "member", "primary", "source", "n_observed",
+               "n_one_at_least_good", "n_zero_fair_or_poor", "n_missing"),
+    value = c("At least good self-rated health (1-3 vs 4-5)", member, "TRUE",
+              unname(src), sum(!is.na(Y)), sum(Y == 1L, na.rm = TRUE),
+              sum(Y == 0L, na.rm = TRUE), sum(is.na(Y))),
+    stringsAsFactors = FALSE)
   message(sprintf("    [outcome] Constructed %d observed, %d missing. Prevalence: %.1f%%.",
     sum(!is.na(Y)), sum(is.na(Y)), 100 * mean(Y, na.rm = TRUE)))
-  Y
+  list(Y = Y, audit = audit,
+       support = list(natural_lower = 0, natural_upper = 1,
+                      lower_rule = "fixed_binary", upper_rule = "fixed_binary"))
 }
 
-# ---- Mental Health (PLACEHOLDER) ------------------------------------------
+# ---- Mental Health (no implemented source mapping) -------------------------
 construct_outcome_mental_health <- function(main_df, wave, family_cfg, outcome_cfg, member, pipeline_cfg = NULL) {
   message(sprintf("    [outcome] Mental Health, wave %d. [PLACEHOLDER]", wave))
   rep(NA_real_, nrow(main_df))
 }
 
-# ---- Substance Use (PLACEHOLDER) ------------------------------------------
+# ---- Substance Use (no implemented source mapping) -------------------------
 construct_outcome_substance_use <- function(main_df, wave, family_cfg, outcome_cfg, member, pipeline_cfg = NULL) {
   message(sprintf("    [outcome] Substance Use, wave %d. [PLACEHOLDER]", wave))
   rep(NA_real_, nrow(main_df))
@@ -1067,6 +1272,13 @@ construct_outcome <- function(main_df, cfg) {
   fam_cfg <- cfg$outcome$families[[fam_name]]
   if (is.null(fam_cfg))
     stop(sprintf("Unknown outcome family '%s' (not in cfg$outcome$families).", fam_name), call. = FALSE)
+  supported <- supported_outcome_waves(fam_name)
+  if (!length(supported) || !wave %in% supported)
+    stop(sprintf(
+      "Outcome dispatcher hard-blocked family='%s', wave=%d; supported wave(s): %s.",
+      fam_name, wave,
+      if (length(supported)) paste(supported, collapse = ", ") else "none"),
+      call. = FALSE)
   if (!is_verified_outcome_spec(cfg, fam_name, wave) &&
       !isTRUE(cfg$safety$allow_unverified_outcome_specs %||% FALSE)) {
     stop(sprintf(
@@ -1083,6 +1295,7 @@ construct_outcome <- function(main_df, cfg) {
   outcome_result <- switch(fam_name,
     EducationalAttainment   = construct_outcome_educational_attainment(main_df, wave, fam_cfg, cfg$outcome, member, cfg),
     LaborForceParticipation = construct_outcome_labor_force_participation(main_df, wave, fam_cfg, cfg$outcome, member, cfg),
+    HoursWorked             = construct_outcome_hours_worked(main_df, wave, fam_cfg, cfg$outcome, member, cfg),
     UsualHours              = construct_outcome_usual_hours(main_df, wave, fam_cfg, cfg$outcome, member, cfg),
     Compensation            = construct_outcome_compensation(main_df, wave, fam_cfg, cfg$outcome, member, cfg),
     HealthStatus            = construct_outcome_health_status(main_df, wave, fam_cfg, cfg$outcome, member, cfg),
@@ -1116,7 +1329,7 @@ construct_outcome <- function(main_df, cfg) {
 # a 12-hour clock STRING ("HH:MMA"/"HH:MMP", hours 00-12, minutes 00-59) with
 # string sentinels "999996"/"999998"/"999999". It is parsed to minutes-since-
 # midnight (AM 12->0, PM 12->12, PM h->h+12; hour 00 treated as 12 on the
-# clock face) and REPLACED by H1GH50__tsin / H1GH50__tcos = sin/cos of the
+# clock face) and encoded as H1GH50__tsin / H1GH50__tcos = sin/cos of the
 # 24h angle, preserving the midnight wraparound. Sentinel and unparseable
 # values become NA in both columns and are handled by the existing
 # missingness machinery. The transform is gated by transform_time_variables.
@@ -1240,47 +1453,80 @@ validate_expected_final_sample_gates <- function(df, cfg) {
 }
 
 derive_mortality_indicator_from_data <- function(mortality, cfg) {
-  mort <- cfg$mortality_sensitivity
+  mort <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
   id_var <- cfg$analysis$id_var
   source_var <- mort$source_var
+  source_month_var <- mort$source_month_var
   death_year_var <- mort$derived_death_year_var
+  death_month_var <- mort$derived_death_month_var
   raw_window_var <- mort$death_in_window_var
-  assert_required_columns(mortality, c(id_var, source_var), "mortality linkage")
-  mortality <- mortality[, c(id_var, source_var), drop = FALSE]
+  assert_required_columns(
+    mortality, c(id_var, source_var, source_month_var), "mortality linkage")
+  mortality <- mortality[, c(id_var, source_var, source_month_var), drop = FALSE]
   mortality <- coerce_join_key(mortality, id_var, "mortality linkage",
                                require_complete = TRUE)
   assert_unique_key(mortality, id_var, "mortality linkage",
                     require_complete = TRUE)
 
-  raw <- mortality[[source_var]]
-  native_missing <- character_native_missing_mask(raw)
-  year <- to_numeric_codes(raw)
-  integer_year <- is.finite(year) & abs(year - round(year)) <= 1e-8
-  year_int <- rep(NA_integer_, length(year))
-  year_int[integer_year] <- as.integer(round(year[integer_year]))
-  valid_year <- integer_year & year_int >= as.integer(mort$valid_year_min) &
+  raw_year <- mortality[[source_var]]
+  year_native_missing <- character_native_missing_mask(raw_year)
+  year_num <- to_numeric_codes(raw_year)
+  integer_year <- is.finite(year_num) & abs(year_num - round(year_num)) <= 1e-8
+  year_int <- rep(NA_integer_, length(year_num))
+  year_int[integer_year] <- as.integer(round(year_num[integer_year]))
+  valid_year <- integer_year &
+    year_int >= as.integer(mort$valid_year_min) &
     year_int <= as.integer(mort$valid_year_max)
-  no_death_code <- is.finite(year) &
-    year %in% as.numeric(mort$no_death_codes %||% numeric(0))
+  no_death_code <- is.finite(year_num) &
+    year_num %in% as.numeric(mort$no_death_codes %||% numeric(0))
   usable_death_year <- valid_year & !no_death_code
   recognized_no_death <- no_death_code |
-    (native_missing & isTRUE(mort$native_missing_means_no_death))
-  recognized <- usable_death_year | recognized_no_death
-  unrecognized <- !recognized
-  if (any(unrecognized)) {
-    examples <- unique(trimws(as.character(raw[unrecognized])))
+    (year_native_missing & isTRUE(mort$native_missing_means_no_death))
+  recognized_year <- usable_death_year | recognized_no_death
+  unrecognized_year <- !recognized_year
+  if (any(unrecognized_year)) {
+    examples <- unique(trimws(as.character(raw_year[unrecognized_year])))
     examples[is.na(examples) | examples == ""] <- "<native missing>"
     examples <- head(examples, 8L)
     message_text <- sprintf(
       "Mortality source %s contains %d unrecognized value(s); examples: %s.",
-      source_var, sum(unrecognized), paste(examples, collapse = ", "))
+      source_var, sum(unrecognized_year), paste(examples, collapse = ", "))
     if (isTRUE(mort$fail_on_unrecognized_codes)) stop(message_text, call. = FALSE)
-    warning(message_text, " Treating them as no recorded death because the gate is disabled.",
-            call. = FALSE)
+    warning(message_text,
+      " Treating them as no recorded death because the gate is disabled.",
+      call. = FALSE)
+  }
+
+  raw_month <- mortality[[source_month_var]]
+  month_native_missing <- character_native_missing_mask(raw_month)
+  month_num <- to_numeric_codes(raw_month)
+  integer_month <- is.finite(month_num) & abs(month_num - round(month_num)) <= 1e-8
+  month_int <- rep(NA_integer_, length(month_num))
+  month_int[integer_month] <- as.integer(round(month_num[integer_month]))
+  invalid_month_code <- is.finite(month_num) &
+    month_num %in% as.numeric(mort$invalid_month_codes %||% integer(0))
+  valid_month <- integer_month &
+    month_int >= as.integer(mort$valid_month_min) &
+    month_int <= as.integer(mort$valid_month_max)
+  recognized_month <- month_native_missing | invalid_month_code | valid_month
+  unrecognized_month <- !recognized_month
+  if (any(unrecognized_month)) {
+    examples <- unique(trimws(as.character(raw_month[unrecognized_month])))
+    examples[is.na(examples) | examples == ""] <- "<native missing>"
+    examples <- head(examples, 8L)
+    stop(sprintf(
+      paste0("Mortality month source %s contains %d nonmissing code(s) that are ",
+             "neither valid months 1-12 nor configured invalid code(s); examples: %s."),
+      source_month_var, sum(unrecognized_month), paste(examples, collapse = ", ")),
+      call. = FALSE)
   }
 
   death_year <- rep(NA_integer_, length(year_int))
   death_year[usable_death_year] <- year_int[usable_death_year]
+  death_month <- rep(NA_integer_, length(month_int))
+  death_month[usable_death_year & valid_month] <-
+    month_int[usable_death_year & valid_month]
+
   death_in_window <- as.integer(usable_death_year &
     year_int >= as.integer(mort$death_year_start) &
     year_int <= as.integer(mort$death_year_end))
@@ -1290,10 +1536,14 @@ derive_mortality_indicator_from_data <- function(mortality, cfg) {
 
   out <- mortality[, id_var, drop = FALSE]
   out[[death_year_var]] <- death_year
+  out[[death_month_var]] <- death_month
   out[[raw_window_var]] <- death_in_window
   audit <- data.frame(
     source_variable = source_var,
+    source_year_variable = source_var,
+    source_month_variable = source_month_var,
     derived_death_year_variable = death_year_var,
+    derived_death_month_variable = death_month_var,
     raw_window_variable = raw_window_var,
     death_year_start = as.integer(mort$death_year_start),
     death_year_end = as.integer(mort$death_year_end),
@@ -1301,29 +1551,204 @@ derive_mortality_indicator_from_data <- function(mortality, cfg) {
     n_valid_calendar_years = sum(valid_year),
     n_calendar_years_eligible_as_death = sum(usable_death_year),
     n_no_death_codes_overlapping_year_range = sum(no_death_code & valid_year),
-    n_native_missing = sum(native_missing),
+    n_native_missing = sum(year_native_missing),
+    n_native_missing_year = sum(year_native_missing),
     n_explicit_no_death_codes = sum(no_death_code),
-    n_unrecognized_codes = sum(unrecognized),
+    n_unrecognized_codes = sum(unrecognized_year),
+    n_unrecognized_year_codes = sum(unrecognized_year),
+    n_valid_death_months = sum(usable_death_year & is.finite(death_month)),
+    n_unknown_death_months = sum(usable_death_year & !is.finite(death_month)),
+    n_month_present_without_usable_death_year = sum(valid_month & !usable_death_year),
+    n_native_missing_death_months = sum(usable_death_year & month_native_missing),
+    n_997_death_months = sum(usable_death_year & invalid_month_code & month_num == 997),
+    n_unrecognized_month_codes = sum(unrecognized_month),
     n_deaths_in_raw_window = sum(death_in_window),
     native_missing_means_no_death = isTRUE(mort$native_missing_means_no_death),
     stringsAsFactors = FALSE)
   list(data = out, audit = audit)
 }
 
+normalize_interview_timing <- function(interview_timing, mc, id_var,
+                                       strict = TRUE) {
+  iy <- mc$interview_year_var %||% NULL
+  im <- mc$interview_month_var %||% NULL
+  if (is.null(iy) || is.null(im))
+    stop("Interview timing normalization requires configured year and month variables.",
+         call. = FALSE)
+  assert_required_columns(
+    interview_timing, c(id_var, iy, im),
+    sprintf("Wave-%d interview timing", mc$outcome_wave))
+  timing <- interview_timing[, c(id_var, iy, im), drop = FALSE]
+  timing <- coerce_join_key(
+    timing, id_var, sprintf("Wave-%d interview timing", mc$outcome_wave),
+    require_complete = TRUE)
+  assert_unique_key(
+    timing, id_var, sprintf("Wave-%d interview timing", mc$outcome_wave),
+    require_complete = TRUE)
+
+  raw_y <- timing[[iy]]
+  raw_m <- timing[[im]]
+  native_y <- character_native_missing_mask(raw_y)
+  native_m <- character_native_missing_mask(raw_m)
+  num_y <- to_numeric_codes(raw_y)
+  num_m <- to_numeric_codes(raw_m)
+  int_y <- is.finite(num_y) & abs(num_y - round(num_y)) <= 1e-8
+  int_m <- is.finite(num_m) & abs(num_m - round(num_m)) <= 1e-8
+  valid_y <- int_y & num_y >= as.integer(mc$interview_year_valid_min) &
+    num_y <= as.integer(mc$interview_year_valid_max)
+  valid_m <- int_m & num_m >= as.integer(mc$interview_month_valid_min) &
+    num_m <= as.integer(mc$interview_month_valid_max)
+  invalid_y <- !native_y & !valid_y
+  invalid_m <- !native_m & !valid_m
+  if (isTRUE(strict) && any(invalid_y))
+    stop(sprintf(
+      "Wave-%d interview year contains nonmissing values outside the configured valid range: %s",
+      mc$outcome_wave,
+      paste(head(sort(unique(as.character(raw_y[invalid_y]))), 10L), collapse = ", ")),
+      call. = FALSE)
+  if (isTRUE(strict) && any(invalid_m))
+    stop(sprintf(
+      "Wave-%d interview month contains nonmissing values outside 1-12: %s",
+      mc$outcome_wave,
+      paste(head(sort(unique(as.character(raw_m[invalid_m]))), 10L), collapse = ", ")),
+      call. = FALSE)
+
+  year <- rep(NA_integer_, nrow(timing))
+  month <- rep(NA_integer_, nrow(timing))
+  year[valid_y] <- as.integer(round(num_y[valid_y]))
+  month[valid_m] <- as.integer(round(num_m[valid_m]))
+  orphan_month <- is.finite(month) & !is.finite(year)
+  if (isTRUE(strict) && any(orphan_month))
+    stop(sprintf("Wave-%d interview timing has a valid month without a valid year.",
+                 mc$outcome_wave), call. = FALSE)
+  month[orphan_month] <- NA_integer_
+  timing[[iy]] <- year
+  timing[[im]] <- month
+
+  complete <- is.finite(year) & is.finite(month)
+  if (!any(complete))
+    stop(sprintf(
+      "Wave-%d interview timing contains no complete valid year-month values; cannot define the fieldwork fallback.",
+      mc$outcome_wave), call. = FALSE)
+  ym_key <- year[complete] * 12L + (month[complete] - 1L)
+  first_key <- min(ym_key)
+  first_year <- as.integer(first_key %/% 12L)
+  first_month <- as.integer(first_key %% 12L + 1L)
+  last_key <- max(ym_key)
+  last_year <- as.integer(last_key %/% 12L)
+  last_month <- as.integer(last_key %% 12L + 1L)
+
+  audit <- data.frame(
+    outcome_wave = as.integer(mc$outcome_wave),
+    interview_year_variable = iy,
+    interview_month_variable = im,
+    n_wave_timing_rows = nrow(timing),
+    n_complete_interview_dates = sum(complete),
+    n_year_only_interview_dates = sum(is.finite(year) & !is.finite(month)),
+    n_missing_interview_years = sum(!is.finite(year)),
+    n_invalid_nonmissing_years = sum(invalid_y),
+    n_invalid_nonmissing_months = sum(invalid_m),
+    earliest_interview_year = first_year,
+    earliest_interview_month = first_month,
+    latest_interview_year = last_year,
+    latest_interview_month = last_month,
+    stringsAsFactors = FALSE)
+  list(data = timing, fieldwork_start_year = first_year,
+       fieldwork_start_month = first_month,
+       fieldwork_end_year = last_year,
+       fieldwork_end_month = last_month, audit = audit)
+}
+
+classify_mortality_timing <- function(raw_window, death_year, death_month,
+                                      interview_year, interview_month,
+                                      mc, fieldwork_start_year = NA_integer_,
+                                      fieldwork_start_month = NA_integer_,
+                                      fieldwork_end_year = NA_integer_,
+                                      fieldwork_end_month = NA_integer_) {
+  raw_window <- as.integer(raw_window)
+  if (anyNA(raw_window) || any(!raw_window %in% c(0L, 1L)))
+    stop("Mortality timing classification requires a complete 0/1 raw-window indicator.",
+         call. = FALSE)
+  n <- length(raw_window)
+  if (length(death_year) != n || length(death_month) != n ||
+      length(interview_year) != n || length(interview_month) != n)
+    stop("Mortality timing classification vector lengths differ.", call. = FALSE)
+
+  mode <- as.character(mc$timing_mode %||% "fixed_window")
+  death <- integer(n)
+  status <- rep("no_death_or_outside_horizon", n)
+  candidate <- raw_window == 1L
+
+  if (identical(mode, "fixed_window")) {
+    death[candidate] <- 1L
+    status[candidate] <- "fixed_window_death"
+    return(list(death = death, status = status))
+  }
+  if (!identical(mode, "interview_month"))
+    stop("Unknown mortality timing mode: ", mode, call. = FALSE)
+  if (!is.finite(fieldwork_end_year) || !is.finite(fieldwork_end_month) ||
+      fieldwork_end_month < 1L || fieldwork_end_month > 12L)
+    stop("Interview-month mortality requires a finite fieldwork-end year/month.",
+         call. = FALSE)
+
+  iy_ok <- is.finite(interview_year)
+  im_ok <- is.finite(interview_month)
+  dm_ok <- is.finite(death_month)
+
+  idx <- which(candidate & iy_ok & death_year < interview_year)
+  death[idx] <- 1L; status[idx] <- "before_interview_year"
+  idx <- which(candidate & iy_ok & death_year > interview_year)
+  status[idx] <- "after_interview_year"
+
+  same_year <- candidate & iy_ok & death_year == interview_year
+  idx <- which(same_year & dm_ok & im_ok & death_month < interview_month)
+  death[idx] <- 1L; status[idx] <- "before_interview_month"
+  idx <- which(same_year & dm_ok & im_ok & death_month > interview_month)
+  status[idx] <- "after_interview_month"
+  idx <- which(same_year & dm_ok & im_ok & death_month == interview_month)
+  status[idx] <- "same_interview_month_unordered"
+  idx <- which(same_year & !(dm_ok & im_ok))
+  status[idx] <- "same_interview_year_month_unknown"
+
+  no_interview <- candidate & !iy_ok
+  idx <- which(no_interview & death_year < fieldwork_end_year)
+  death[idx] <- 1L; status[idx] <- "before_fieldwork_end_year_no_interview"
+  idx <- which(no_interview & death_year > fieldwork_end_year)
+  status[idx] <- "after_fieldwork_end_year_no_interview"
+  same_end_year <- no_interview & death_year == fieldwork_end_year
+  idx <- which(same_end_year & dm_ok & death_month <= fieldwork_end_month)
+  death[idx] <- 1L
+  status[idx] <- "on_or_before_fieldwork_end_month_no_interview"
+  idx <- which(same_end_year & dm_ok & death_month > fieldwork_end_month)
+  status[idx] <- "after_fieldwork_end_month_no_interview"
+  idx <- which(same_end_year & !dm_ok)
+  status[idx] <- "fieldwork_end_year_death_month_unknown_no_interview"
+
+  if (anyNA(death) || any(!death %in% c(0L, 1L)))
+    stop("Internal mortality timing classification produced a nonbinary indicator.",
+         call. = FALSE)
+  list(death = death, status = status)
+}
 
 merge_mortality_indicator_from_data <- function(main_sample, mortality, cfg,
-                                                wave4_timing = NULL) {
+                                                interview_timing = NULL) {
   mort <- derive_mortality_indicator_from_data(mortality, cfg)
-  mc <- cfg$mortality_sensitivity
+  mc <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
   id_var <- cfg$analysis$id_var
   death_var <- mc$death_before_outcome_var
   death_year_var <- mc$derived_death_year_var
+  death_month_var <- mc$derived_death_month_var
   raw_window_var <- mc$death_in_window_var
-  interview_var <- mc$interview_year_var
-  role_vars <- c(death_var, death_year_var, raw_window_var, interview_var)
+  timing_status_var <- mc$timing_status_var
+  interview_year_var <- mc$interview_year_var %||% NULL
+  interview_month_var <- mc$interview_month_var %||% NULL
+  role_vars <- unique(c(
+    death_var, death_year_var, death_month_var, raw_window_var,
+    timing_status_var, interview_year_var %||% character(0),
+    interview_month_var %||% character(0)))
   conflicts <- canonical_role_key(role_vars) %in% canonical_role_key(names(main_sample))
   if (any(conflicts))
-    stop("Mortality-derived or Wave-IV audit variable already exists before linkage: ",
+    stop("Mortality-derived or interview-timing variable already exists before linkage: ",
          paste(role_vars[conflicts], collapse = ", "), call. = FALSE)
 
   joined <- left_join_unique(
@@ -1349,132 +1774,139 @@ merge_mortality_indicator_from_data <- function(main_sample, mortality, cfg,
       n_unmatched, n_unmatched_required), call. = FALSE)
     joined[[raw_window_var]][unmatched] <- 0L
     joined[[death_year_var]][unmatched] <- NA_integer_
+    joined[[death_month_var]][unmatched] <- NA_integer_
   }
 
-  # Primary mortality classification is intentionally independent of IYEAR4.
-  # The settled composite is exactly the recognized NDIDD19Y death-year window.
-  raw_window <- as.integer(joined[[raw_window_var]])
-  if (anyNA(raw_window) || any(!raw_window %in% c(0L, 1L)))
-    stop("Internal mortality linkage error: raw-window death indicator is incomplete/nonbinary.",
-         call. = FALSE)
-  joined[[death_var]] <- raw_window
-
-  # IYEAR4 is audit-only. Absence of a Wave-IV record or a missing IYEAR4 value
-  # is expected for nonrespondents/decedents and NEVER changes the death indicator.
+  mode <- as.character(mc$timing_mode %||% "fixed_window")
   interview_year <- rep(NA_integer_, nrow(joined))
-  if (!is.null(wave4_timing)) {
-    assert_required_columns(wave4_timing, c(id_var, interview_var),
-                            "Wave-IV interview-year audit")
-    timing <- wave4_timing[, c(id_var, interview_var), drop = FALSE]
-    timing <- coerce_join_key(timing, id_var, "Wave-IV interview-year audit",
-                              require_complete = TRUE)
-    assert_unique_key(timing, id_var, "Wave-IV interview-year audit",
-                      require_complete = TRUE)
+  interview_month <- rep(NA_integer_, nrow(joined))
+  timing_audit <- data.frame()
+  fieldwork_start_year <- NA_integer_
+  fieldwork_start_month <- NA_integer_
+  fieldwork_end_year <- NA_integer_
+  fieldwork_end_month <- NA_integer_
+
+  if (!is.null(interview_year_var) && !is.null(interview_month_var) &&
+      !is.null(interview_timing)) {
+    norm <- normalize_interview_timing(
+      interview_timing, mc, id_var,
+      strict = identical(mode, "interview_month"))
+    timing <- norm$data
+    fieldwork_start_year <- norm$fieldwork_start_year
+    fieldwork_start_month <- norm$fieldwork_start_month
+    fieldwork_end_year <- norm$fieldwork_end_year
+    fieldwork_end_month <- norm$fieldwork_end_month
     joined <- left_join_unique(
       joined, timing, id_var,
-      x_label = "mortality-linked analytic sample",
-      y_label = "Wave-IV interview-year audit",
+      x_label = "mortality-linked analytic sample", y_label = "interview timing",
       require_complete_x = TRUE, require_complete_y = TRUE)
-
-    interview_raw <- joined[[interview_var]]
-    interview_num <- to_numeric_codes(interview_raw)
-    valid_interview <- is.finite(interview_num) &
-      abs(interview_num - round(interview_num)) <= 1e-8 &
-      interview_num >= as.integer(mc$interview_year_valid_min) &
-      interview_num <= as.integer(mc$interview_year_valid_max)
-    invalid_interview <- !character_native_missing_mask(interview_raw) & !valid_interview
-    if (any(invalid_interview))
-      stop("Wave-IV interview year contains nonmissing values outside the configured valid range: ",
-           paste(head(sort(unique(as.character(interview_raw[invalid_interview]))), 10L),
-                 collapse = ", "), call. = FALSE)
-    interview_year[valid_interview] <- as.integer(round(interview_num[valid_interview]))
-    joined[[interview_var]] <- interview_year
+    interview_year <- as.integer(joined[[interview_year_var]])
+    interview_month <- as.integer(joined[[interview_month_var]])
+    timing_audit <- norm$audit
   } else {
-    joined[[interview_var]] <- interview_year
+    if (!is.null(interview_year_var)) joined[[interview_year_var]] <- interview_year
+    if (!is.null(interview_month_var)) joined[[interview_month_var]] <- interview_month
   }
 
+  if (identical(mode, "interview_month") && is.null(interview_timing))
+    stop(sprintf(
+      "Wave-%d interview-month mortality requires the full wave interview timing table.",
+      mc$outcome_wave), call. = FALSE)
+
+  classified <- classify_mortality_timing(
+    raw_window = joined[[raw_window_var]],
+    death_year = as.integer(joined[[death_year_var]]),
+    death_month = as.integer(joined[[death_month_var]]),
+    interview_year = interview_year,
+    interview_month = interview_month,
+    mc = mc,
+    fieldwork_start_year = fieldwork_start_year,
+    fieldwork_start_month = fieldwork_start_month,
+    fieldwork_end_year = fieldwork_end_year,
+    fieldwork_end_month = fieldwork_end_month)
+  joined[[death_var]] <- as.integer(classified$death)
+  joined[[timing_status_var]] <- as.character(classified$status)
+
   death <- joined[[death_var]] == 1L
+  raw_candidate <- joined[[raw_window_var]] == 1L
   mort$audit$n_linkage_left_rows <- nrow(joined)
   mort$audit$n_valid_weight_rows_requiring_linkage <- sum(linkage_required)
   mort$audit$n_all_rows_matched <- sum(matched)
   mort$audit$n_all_rows_unmatched <- n_unmatched
   mort$audit$n_required_rows_unmatched <- n_unmatched_required
   mort$audit$n_nonrequired_rows_unmatched <- sum(unmatched & !linkage_required)
-  mort$audit$n_linked_deaths_in_raw_window <- sum(death)
+  mort$audit$n_linked_deaths_in_raw_window <- sum(raw_candidate)
   mort$audit$n_deaths_classified_before_outcome <- sum(death)
-  mort$audit$mortality_classification_rule <- sprintf(
-    "%s in inclusive %d-%d window; independent of %s",
-    mc$source_var, as.integer(mc$death_year_start), as.integer(mc$death_year_end),
-    interview_var)
+  mort$audit$mortality_timing_mode <- mode
+  mort$audit$mortality_classification_rule <- mortality_timing_rule_text(mc)
+  mort$audit$fieldwork_start_year <- fieldwork_start_year
+  mort$audit$fieldwork_start_month <- fieldwork_start_month
+  mort$audit$fieldwork_end_year <- fieldwork_end_year
+  mort$audit$fieldwork_end_month <- fieldwork_end_month
   mort$audit$n_interview_year_observed <- sum(is.finite(interview_year))
-  mort$audit$n_interview_year_missing <- sum(!is.finite(interview_year))
-  mort$audit$n_deaths_with_interview_year <- sum(death & is.finite(interview_year))
-  mort$audit$n_deaths_without_interview_year <- sum(death & !is.finite(interview_year))
-  mort$audit$n_nondeaths_with_interview_year <- sum(!death & is.finite(interview_year))
-  mort$audit$n_nondeaths_without_interview_year <- sum(!death & !is.finite(interview_year))
+  mort$audit$n_interview_month_observed <- sum(is.finite(interview_month))
+  mort$audit$n_complete_interview_dates <-
+    sum(is.finite(interview_year) & is.finite(interview_month))
+  mort$audit$n_death_month_unknown_in_raw_window <-
+    sum(raw_candidate & !is.finite(joined[[death_month_var]]))
+  mort$audit$n_same_interview_month_unordered <-
+    sum(joined[[timing_status_var]] == "same_interview_month_unordered")
+  mort$audit$n_same_interview_year_month_unknown <-
+    sum(joined[[timing_status_var]] == "same_interview_year_month_unknown")
 
-  make_interview_rows <- function(year, death_indicator) {
-    observed <- is.finite(year)
-    years <- sort(unique(year[observed]))
-    rows <- list()
-    for (v in years) {
-      rows[[length(rows) + 1L]] <- data.frame(
-        interview_year = as.integer(v),
-        mortality_window_status = "all",
-        n = sum(observed & year == v), stringsAsFactors = FALSE)
-      rows[[length(rows) + 1L]] <- data.frame(
-        interview_year = as.integer(v),
-        mortality_window_status = "death_1997_2007",
-        n = sum(observed & year == v & death_indicator == 1L), stringsAsFactors = FALSE)
-      rows[[length(rows) + 1L]] <- data.frame(
-        interview_year = as.integer(v),
-        mortality_window_status = "no_death_1997_2007",
-        n = sum(observed & year == v & death_indicator == 0L), stringsAsFactors = FALSE)
-    }
-    rows[[length(rows) + 1L]] <- data.frame(
-      interview_year = NA_integer_, mortality_window_status = "all",
-      n = sum(!observed), stringsAsFactors = FALSE)
-    rows[[length(rows) + 1L]] <- data.frame(
-      interview_year = NA_integer_, mortality_window_status = "death_1997_2007",
-      n = sum(!observed & death_indicator == 1L), stringsAsFactors = FALSE)
-    rows[[length(rows) + 1L]] <- data.frame(
-      interview_year = NA_integer_, mortality_window_status = "no_death_1997_2007",
-      n = sum(!observed & death_indicator == 0L), stringsAsFactors = FALSE)
-    out <- do.call(rbind, rows)
-    out$interview_year_variable <- interview_var
-    out$role <- "audit_only_never_used_for_mortality_classification"
-    out
+  status_tab <- as.data.frame(table(joined[[timing_status_var]]),
+                              stringsAsFactors = FALSE)
+  names(status_tab) <- c("timing_status", "n")
+  status_tab$outcome_wave <- as.integer(mc$outcome_wave)
+  status_tab$timing_mode <- mode
+  status_tab$fieldwork_start_year <- fieldwork_start_year
+  status_tab$fieldwork_start_month <- fieldwork_start_month
+  status_tab$fieldwork_end_year <- fieldwork_end_year
+  status_tab$fieldwork_end_month <- fieldwork_end_month
+  status_tab$interview_year_variable <- interview_year_var %||% NA_character_
+  status_tab$interview_month_variable <- interview_month_var %||% NA_character_
+  if (nrow(timing_audit)) {
+    for (nm in setdiff(names(timing_audit), names(status_tab)))
+      status_tab[[nm]] <- timing_audit[[nm]][1L]
   }
-  interview_year_audit <- make_interview_rows(interview_year, joined[[death_var]])
 
   list(data = joined, audit = mort$audit,
-       interview_year_audit = interview_year_audit)
+       interview_timing_audit = status_tab)
 }
 
-
 merge_mortality_indicator <- function(main_sample, cfg) {
+  mc <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
+  if (!isTRUE(mc$enabled)) return(main_sample)
   mortality <- read_xpt_df(cfg$paths$mortality)
-  wave4 <- read_wave_inhome(4L, cfg)
-  timing_vars <- c(cfg$analysis$id_var,
-                   cfg$mortality_sensitivity$interview_year_var)
-  assert_required_columns(wave4, timing_vars, "Wave-IV interview-year audit")
+
+  timing <- NULL
+  iy <- mc$interview_year_var %||% NULL
+  im <- mc$interview_month_var %||% NULL
+  if (!is.null(iy) && !is.null(im)) {
+    wave_df <- read_wave_inhome(cfg$outcome$current_wave, cfg)
+    timing_vars <- c(cfg$analysis$id_var, iy, im)
+    assert_required_columns(
+      wave_df, timing_vars,
+      sprintf("Wave-%d interview timing", cfg$outcome$current_wave))
+    timing <- wave_df[, timing_vars, drop = FALSE]
+  }
+
   linked <- merge_mortality_indicator_from_data(
-    main_sample, mortality, cfg,
-    wave4_timing = wave4[, timing_vars, drop = FALSE])
+    main_sample, mortality, cfg, interview_timing = timing)
   if (isTRUE(cfg$global$save_stage_csvs)) {
-    write_run_csv(linked$audit, cfg,
-                  cfg$mortality_sensitivity$linkage_audit_csv %||%
-                    "mortality_linkage_1997_2007_audit.csv")
-    write_run_csv(linked$interview_year_audit, cfg,
-                  cfg$mortality_sensitivity$interview_year_audit_csv %||%
-                    "wave4_interview_year_audit.csv")
+    write_run_csv(linked$audit, cfg, mc$linkage_audit_csv)
+    if (!is.null(mc$interview_timing_audit_csv) &&
+        !is.null(linked$interview_timing_audit) &&
+        nrow(linked$interview_timing_audit))
+      write_run_csv(
+        linked$interview_timing_audit, cfg, mc$interview_timing_audit_csv)
   }
   linked$data
 }
 
-
 apply_mortality_composite <- function(main_sample, cfg) {
-  death_var <- cfg$mortality_sensitivity$death_before_outcome_var
+  mc <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
+  death_var <- mc$death_before_outcome_var
   outcome_var <- cfg$analysis$outcome_var
   assert_required_columns(
     main_sample, c(death_var, outcome_var), "mortality-composite outcome")
@@ -1497,11 +1929,15 @@ apply_mortality_composite <- function(main_sample, cfg) {
       stop("Mortality-composite zero lies outside the configured outcome support.",
            call. = FALSE)
   }
+
   original_y <- as.numeric(main_sample[[outcome_var]])
   observed_death <- death == 1L & is.finite(original_y)
   n_observed_death <- sum(observed_death)
-  death_year_var <- cfg$mortality_sensitivity$derived_death_year_var
-  interview_year_var <- cfg$mortality_sensitivity$interview_year_var
+  death_year_var <- mc$derived_death_year_var
+  death_month_var <- mc$derived_death_month_var
+  interview_year_var <- mc$interview_year_var %||% NULL
+  interview_month_var <- mc$interview_month_var %||% NULL
+  timing_status_var <- mc$timing_status_var %||% NULL
   audit <- data.frame(
     n_total = nrow(main_sample),
     n_deaths_before_outcome = sum(death == 1L),
@@ -1510,15 +1946,13 @@ apply_mortality_composite <- function(main_sample, cfg) {
       sum(death == 1L & !is.finite(original_y)),
     n_deaths_recoded_to_observed_zero = sum(death == 1L),
     contradiction_gate_enabled = isTRUE(
-      cfg$mortality_sensitivity$fail_on_death_with_observed_original_outcome %||% TRUE),
-    composite_definition = sprintf(
-      paste0("Configured labor-market outcome set to zero for recognized %s death year ",
-             "during inclusive %d-%d; classification is independent of %s"),
-      cfg$mortality_sensitivity$source_var %||% "NDIDD19Y",
-      as.integer(cfg$mortality_sensitivity$death_year_start),
-      as.integer(cfg$mortality_sensitivity$death_year_end),
-      interview_year_var %||% "IYEAR4"),
+      mc$fail_on_death_with_observed_original_outcome %||% TRUE),
+    mortality_timing_mode = as.character(mc$timing_mode %||% "fixed_window"),
+    composite_definition = paste0(
+      "Configured outcome set to zero when pre-outcome death is classified by: ",
+      mortality_timing_rule_text(mc)),
     stringsAsFactors = FALSE)
+
   if (n_observed_death > 0L) {
     contradiction <- data.frame(
       respondent_id = main_sample[[cfg$analysis$id_var]][observed_death],
@@ -1528,28 +1962,32 @@ apply_mortality_composite <- function(main_sample, cfg) {
         as.character(main_sample$EarningsSource[observed_death]) else NA_character_,
       death_year = if (death_year_var %in% names(main_sample))
         main_sample[[death_year_var]][observed_death] else NA_integer_,
-      interview_year = if (interview_year_var %in% names(main_sample))
+      death_month = if (death_month_var %in% names(main_sample))
+        main_sample[[death_month_var]][observed_death] else NA_integer_,
+      interview_year = if (!is.null(interview_year_var) &&
+          interview_year_var %in% names(main_sample))
         main_sample[[interview_year_var]][observed_death] else NA_integer_,
+      interview_month = if (!is.null(interview_month_var) &&
+          interview_month_var %in% names(main_sample))
+        main_sample[[interview_month_var]][observed_death] else NA_integer_,
+      timing_status = if (!is.null(timing_status_var) &&
+          timing_status_var %in% names(main_sample))
+        as.character(main_sample[[timing_status_var]][observed_death]) else NA_character_,
       stringsAsFactors = FALSE)
     if (isTRUE(cfg$global$save_stage_csvs %||% TRUE))
-      write_run_csv(
-        contradiction, cfg,
-        cfg$mortality_sensitivity$contradiction_audit_csv %||%
-          "mortality_death_with_observed_outcome_records.csv")
+      write_run_csv(contradiction, cfg, mc$contradiction_audit_csv)
     contradiction_message <- sprintf(
-      paste0("Mortality linkage contradiction: %d respondent(s) were coded as ",
-             "dead during %d-%d but had a finite original outcome. Review the ",
-             "mortality linkage and death-year coding before permitting zero recoding."),
-      n_observed_death,
-      as.integer(cfg$mortality_sensitivity$death_year_start),
-      as.integer(cfg$mortality_sensitivity$death_year_end))
-    if (isTRUE(
-        cfg$mortality_sensitivity$fail_on_death_with_observed_original_outcome %||% TRUE))
+      paste0("Mortality linkage contradiction: %d respondent(s) were classified as ",
+             "dead before the configured outcome but had a finite original outcome. ",
+             "Review mortality/interview timing before permitting zero recoding."),
+      n_observed_death)
+    if (isTRUE(mc$fail_on_death_with_observed_original_outcome %||% TRUE))
       stop(contradiction_message, call. = FALSE)
     warning(contradiction_message,
             " The contradiction gate is disabled, so the values will be overwritten with zero.",
             call. = FALSE)
   }
+
   out <- main_sample
   out[[outcome_var]][death == 1L] <- 0
   if ("EarningsSource" %in% names(out)) {
@@ -1558,6 +1996,7 @@ apply_mortality_composite <- function(main_sample, cfg) {
   }
   list(data = out, audit = audit)
 }
+
 
 build_main_dataset <- function(w1_all, cfg) {
   msg("\n===== STAGE: Build main dataset =====", cfg = cfg)
@@ -1603,7 +2042,7 @@ build_main_dataset <- function(w1_all, cfg) {
     }
   }
 
-  # ---- Build exposure (CES-D -> Depressed): unchanged across outcomes/waves ---
+  # ---- Build the common CES-D exposure (Depressed) -------------------------
   msg("  [exposure] Reading Wave 2 CES-D items to build 'Depressed'...", cfg = cfg)
   inhome_w2 <- read_xpt_df(cfg$paths$wave2_inhome)
   mh_cols   <- cfg$exposure$cesd_items
@@ -1670,12 +2109,11 @@ build_main_dataset <- function(w1_all, cfg) {
     nrow(main_sample),
     100 * mean(main_sample[[cfg$analysis$exposure_var]], na.rm = TRUE)), cfg = cfg)
 
-  if (isTRUE(cfg$mortality_sensitivity$enabled %||% FALSE)) {
-    msg(sprintf("  [mortality] Deriving %s from %s for years %d-%d...",
-                cfg$mortality_sensitivity$death_before_outcome_var,
-                cfg$mortality_sensitivity$source_var,
-                as.integer(cfg$mortality_sensitivity$death_year_start),
-                as.integer(cfg$mortality_sensitivity$death_year_end)), cfg = cfg)
+  if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave)) {
+    mc_now <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
+    msg(sprintf("  [mortality] Wave %d: deriving %s via %s...",
+                cfg$outcome$current_wave, mc_now$death_before_outcome_var,
+                mortality_timing_rule_text(mc_now)), cfg = cfg)
     main_sample <- merge_mortality_indicator(main_sample, cfg)
   }
 
@@ -1700,22 +2138,27 @@ build_main_dataset <- function(w1_all, cfg) {
       main_sample$EarningsSource == "exact" & main_sample[[cfg$analysis$outcome_var]] == 0,
       na.rm = TRUE)
   }
+  if (!identical(cfg$outcome$family, "Compensation") && !is.null(oc$audit)) {
+    if (isTRUE(cfg$global$save_stage_csvs))
+      write_run_csv(oc$audit, cfg, "outcome_construction_audit.csv")
+    attr(main_sample, "outcome_construction_audit") <- oc$audit
+  }
   attr(main_sample, "outcome_support") <- oc$support %||% NULL
   # Optional policy composite for truncation by death. Deaths in the configured
   # window are observed zeros, including respondents whose original outcome was
   # missing; ordinary nondeath outcome missingness continues through delta_Y/pi.
-  if (isTRUE(cfg$mortality_sensitivity$enabled %||% FALSE) &&
-      isTRUE(cfg$mortality_sensitivity$composite_zero_at_death %||% FALSE)) {
+  if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave) &&
+      isTRUE(resolve_mortality_spec(cfg, cfg$outcome$current_wave)$composite_zero_at_death %||% FALSE)) {
     mortality_composite <- apply_mortality_composite(main_sample, cfg)
     main_sample <- mortality_composite$data
     attr(main_sample, "mortality_composite_audit") <- mortality_composite$audit
+    mort_now <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
     sample_flow$mortality_zero_before_weight_drop <-
-      sum(main_sample$EarningsSource == "mortality_zero", na.rm = TRUE)
+      sum(main_sample[[mort_now$death_before_outcome_var]] == 1L, na.rm = TRUE)
     if (isTRUE(cfg$global$save_stage_csvs))
       write_run_csv(
         mortality_composite$audit, cfg,
-        cfg$mortality_sensitivity$output_csv %||%
-          "mortality_composite_zero_at_death_audit.csv")
+        resolve_mortality_spec(cfg, cfg$outcome$current_wave)$output_csv)
   }
   # Censoring indicator
   main_sample[[cfg$analysis$outcome_observed_var]] <-
@@ -1742,8 +2185,8 @@ build_main_dataset <- function(w1_all, cfg) {
     }
   }
 
-  # v6 Fix C: drop rows with invalid sampling weights at dataset-build time
-  # so every downstream stage sees the same analytic sample.
+  # Drop rows with invalid sampling weights during dataset construction so
+  # every downstream stage uses the same analytic sample.
   if (isTRUE(cfg$preprocessing$drop_invalid_weights_at_build)) {
     w <- suppressWarnings(as.numeric(main_sample[[cfg$analysis$weight_var]]))
     keep_w <- is.finite(w) & w > 0
@@ -1834,8 +2277,9 @@ build_main_dataset <- function(w1_all, cfg) {
     sum(main_sample$EarningsSource == "exact") else NA_integer_
   sample_flow$earnings_bracket_final <- if ("EarningsSource" %in% names(main_sample))
     sum(main_sample$EarningsSource == "bracket_midpoint") else NA_integer_
-  sample_flow$mortality_zero_final <- if ("EarningsSource" %in% names(main_sample))
-    sum(main_sample$EarningsSource == "mortality_zero") else NA_integer_
+  mort_now <- if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave)) resolve_mortality_spec(cfg, cfg$outcome$current_wave) else NULL
+  sample_flow$mortality_zero_final <- if (!is.null(mort_now) && mort_now$death_before_outcome_var %in% names(main_sample))
+    sum(main_sample[[mort_now$death_before_outcome_var]] == 1L) else 0L
   sample_flow$valid_zero_exact_final <- if ("EarningsSource" %in% names(main_sample))
     sum(main_sample$EarningsSource == "exact" &
         main_sample[[cfg$analysis$outcome_var]] == 0, na.rm = TRUE) else NA_integer_

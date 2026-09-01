@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 5654-5928.
-# Module role: Fold-pure final-W preprocessing.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 6) FINAL W PREPROCESSING HELPERS
 # =============================================================================
 # Plain-English role: these helpers learn preprocessing rules on each final
@@ -198,7 +193,7 @@ apply_factor_transform <- function(x, prep) {
 
 # Build design matrix for a set of columns. Returns processed matrix and
 # a "group" id per column (all dummies for one factor share a group id).
-# v5: enforces a HARD stop at hard_max_processed_columns to prevent RAM
+# Enforces a hard stop at hard_max_processed_columns to prevent memory
 # blowouts on the small-memory workstations used for this project.
 
 build_grouped_design_train <- function(df, cfg_gp, cfg_pre, hard_max_cols = NULL,

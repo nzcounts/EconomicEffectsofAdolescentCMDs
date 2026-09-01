@@ -1,14 +1,9 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 5453-5653.
-# Module role: Nested rough screening.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 5) STAGE 1: ROUGH PRE-SCREEN
 # =============================================================================
 # Plain-English role: a fast first-pass filter. For every candidate variable
-# we fit a single-variable cross-validated model predicting (a) the exposure
-# and (b) the outcome, compute a score (logloss- or MSE-based R^2), then keep
-# the variables whose scores exceed a "knee" cutoff. The purpose is to drop
+# fit single-variable cross-validated models for exposure, outcome, or outcome
+# observation as requested. Score each model using log-loss- or MSE-based R^2,
+# then apply the configured ranking cutoff. The purpose is to drop
 # obvious noise columns before final TMLE. In the default
 # pipeline, the rough screen is nested inside final TMLE folds and always
 # uses whole-school validation folds.
@@ -202,5 +197,5 @@ screen_gauss_linear <- function(y, X, K = 5L, seed = 1L,
 }
 
 # Orchestrator for the rough prescreen. Writes the shortlist to CSV and
-# saves knee-curve PNGs so reviewers can see where the cutoff landed.
+# optionally saves knee-curve PNGs that show the selected cutoff.
 # =============================================================================

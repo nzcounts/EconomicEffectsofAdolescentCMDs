@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 13033-13492.
-# Module role: Pipeline runner and publication gate.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 10) PIPELINE RUNNER WITH CHECKPOINTING
 # =============================================================================
 # Plain-English role: the single entry point that walks through stages in
@@ -71,9 +66,9 @@ obtain_main_dataset_for_run <- function(cfg, w1_all, cache_path,
 
 enforce_output_directory_spec <- function(cfg) {
   tag <- sanitize_piece(build_run_tag(cfg))
-  existing <- list.files(cfg$global$output_dir, pattern = "^resolved_config__.*\\.rds$", full.names = TRUE)
+  existing <- list.files(cfg$global$output_dir, pattern = "^cfg__.*\\.rds$", full.names = TRUE)
   if (length(existing)) {
-    existing <- existing[grepl(paste0("resolved_config__", tag, "__"), basename(existing), fixed = TRUE)]
+    existing <- existing[grepl(paste0("cfg__", tag, "__"), basename(existing), fixed = TRUE)]
   }
   if (!length(existing)) return(invisible(NULL))
   hashes <- vapply(existing, function(f) {
@@ -104,16 +99,17 @@ required_publication_paths <- function(cfg) {
   if (isTRUE(cfg$diagnostics$enable_mnar_calibrated %||% TRUE))
     paths <- c(paths, build_unique_diag_path(cfg, out_dir,
       cfg$diagnostics$mnar_calibrated_csv %||% "att_mnar_calibrated_sensitivity.csv"))
-  if (isTRUE(cfg$mortality_sensitivity$enabled %||% FALSE)) {
-    paths <- c(paths,
-      build_unique_path(cfg, cfg$mortality_sensitivity$linkage_audit_csv %||%
-        "mortality_linkage_1997_2007_audit.csv"),
-      build_unique_path(cfg, cfg$mortality_sensitivity$interview_year_audit_csv %||%
-        "wave4_interview_year_audit.csv"))
-    if (isTRUE(cfg$mortality_sensitivity$composite_zero_at_death %||% FALSE))
-      paths <- c(paths, build_unique_path(cfg,
-        cfg$mortality_sensitivity$output_csv %||%
-          "mortality_composite_zero_at_death_audit.csv"))
+  if (isTRUE(cfg$policy$enable_att_prevalence_translation %||% TRUE) &&
+      isTRUE(compensation_ratio_translation_enabled(cfg)))
+    paths <- c(paths, build_unique_path(
+      cfg, cfg$policy$output_csv %||% "att_policy_translation.csv"))
+  if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave)) {
+    mc <- resolve_mortality_spec(cfg, cfg$outcome$current_wave)
+    paths <- c(paths, build_unique_path(cfg, mc$linkage_audit_csv))
+    if (!is.null(mc$interview_timing_audit_csv))
+      paths <- c(paths, build_unique_path(cfg, mc$interview_timing_audit_csv))
+    if (isTRUE(mc$composite_zero_at_death))
+      paths <- c(paths, build_unique_path(cfg, mc$output_csv))
   }
   unique(paths)
 }
@@ -220,7 +216,7 @@ assert_publication_ready <- function(cfg, main_df, tmle_fit) {
   # Give this run its own checkpoint directory so different waves
   # /outcomes do not reuse each other's per-fold caches.
   cfg$global$checkpoint_subdir <- paste0(
-    "checkpoints_cvtmle__", sanitize_piece(cfg$global$version), "__", run_tag)
+    "ck__", sanitize_piece(cfg$global$version), "__", run_tag)
   cfg <- freeze_run_provenance(cfg)
   enforce_output_directory_spec(cfg)
 
@@ -232,7 +228,7 @@ assert_publication_ready <- function(cfg, main_df, tmle_fit) {
   msg(sprintf("    output_dir   = %s", cfg$global$output_dir), cfg = cfg)
   msg(sprintf("############################################################\n"), cfg = cfg)
   atomic_save_rds(cfg, file.path(cfg$global$output_dir,
-    paste0("resolved_config__", sanitize_piece(run_tag), "__", cfg$global$run_id, ".rds")),
+    paste0("cfg__", sanitize_piece(run_tag), "__", cfg$global$run_id, ".rds")),
     overwrite = FALSE)
 
   wave1_path <- file.path(cfg$global$output_dir, cfg$cache$wave1_rds)
@@ -328,10 +324,21 @@ assert_publication_ready <- function(cfg, main_df, tmle_fit) {
 # ---------------------------------------------------------------------------
 # Top-level entry point: expands waves and runs .run_single_pipeline
 # for each combination. Returns a list of all results, plus a combined
-# results CSV that rolls every run's ATE into one table.
+# results CSV containing each run's headline and supporting estimands.
 # ---------------------------------------------------------------------------
 
+apply_outcome_runtime_defaults <- function(cfg) {
+  fam <- cfg$outcome$family %||% ""
+  if (fam %in% c("EducationalAttainment", "HealthStatus",
+                 "LaborForceParticipation"))
+    cfg$analysis$outcome_type <- "binary"
+  if (fam %in% c("Compensation", "HoursWorked"))
+    cfg$analysis$outcome_type <- "continuous"
+  cfg
+}
+
 run_addhealth_pipeline <- function(cfg) {
+  cfg <- apply_outcome_runtime_defaults(cfg)
   cfg <- ensure_run_id(cfg)
   validate_cfg(cfg)
   load_required_packages(cfg)
@@ -344,7 +351,9 @@ run_addhealth_pipeline <- function(cfg) {
   assert_planned_output_paths(cfg)
 
   waves <- cfg$outcome$waves
-  if (identical(waves, "all")) waves <- 3:5
+  if (identical(waves, "all")) {
+    waves <- supported_outcome_waves(cfg$outcome$family)
+  }
   waves <- as.integer(waves)
   msg(sprintf("[run_addhealth_pipeline] Will iterate over waves: %s.",
     paste(waves, collapse = ", ")), cfg = cfg)
@@ -390,7 +399,10 @@ run_addhealth_pipeline <- function(cfg) {
         get1 <- function(field) if (!is.null(rr[[field]])) rr[[field]][1L] else NA
         summary_rows[[length(summary_rows) + 1L]] <- data.frame(
           run_tag = build_run_tag(cfg_run), family = cfg_run$outcome$family,
-          wave = w, family_member = m %||% NA_character_, n = rr$n,
+          wave = w, family_member = m %||% NA_character_,
+          outcome_primary = if (!is.null(m) && !is.null(fam_cfg$members[[m]]))
+            isTRUE(fam_cfg$members[[m]]$primary) else TRUE,
+          n = rr$n,
           n_clusters = rr$n_clusters, estimate = rr$estimate, se = rr$se,
           ci_lower = rr$ci_lower, ci_upper = rr$ci_upper, p_value = rr$p_value,
           primary_estimand = if (!is.null(rr$primary_estimand)) rr$primary_estimand[1L] else "ate",
@@ -410,6 +422,11 @@ run_addhealth_pipeline <- function(cfg) {
           ate_tmle_full = get1("ate_tmle"), ate_se_full = get1("ate_se_full"),
           ate_plugin_initial = get1("ate_plugin_initial"), ate_aipw_initial = get1("ate_aipw_initial"),
           att_estimate = get1("att_estimate"), att_se = get1("att_se"),
+          att_percentage_points = get1("att_percentage_points"),
+          att_percentage_points_se = get1("att_percentage_points_se"),
+          att_percentage_points_ci_lower = get1("att_percentage_points_ci_lower"),
+          att_percentage_points_ci_upper = get1("att_percentage_points_ci_upper"),
+          att_percentage_points_p = get1("att_percentage_points_p"),
           att_mu1 = get1("att_mu1"), att_mu0 = get1("att_mu0"),
           att_mu1_earnings_depressed = get1("att_mu1_earnings_depressed"),
           att_mu0_earnings_no_depression = get1("att_mu0_earnings_no_depression"),

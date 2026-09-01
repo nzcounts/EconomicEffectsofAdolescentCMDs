@@ -1,8 +1,4 @@
-# Repository-specific configuration helpers.
-#
-# The analysis defaults remain in 02_config.R. Machine-specific paths and any
-# deliberate run overrides are supplied in an ignored YAML file and merged only
-# after every production module has been sourced.
+# Read a local YAML configuration without exposing machine-specific paths.
 
 assert_known_config_overlay <- function(base, overlay, location = "cfg") {
   if (is.null(overlay)) return(invisible(TRUE))
@@ -65,7 +61,7 @@ read_project_config <- function(default_cfg, path, project_root = getwd(),
                            base_dir = config_dir)
   resolved$global$output_dir <- normalize_config_path(
     resolved$global$output_dir, base_dir = config_dir)
-  # Hash the complete modular R source tree, not only the command-line wrapper.
+  # The source fingerprint covers every numbered module in stable order.
   resolved$global$pipeline_source_path <- normalizePath(
     file.path(project_root, "R"), winslash = "/", mustWork = TRUE)
   resolved
@@ -77,7 +73,8 @@ required_input_keys <- function(cfg) {
     "contextual_w1", "health_w1", "spatial_w1", "stchr95_w1",
     "polcon_w1", "weights_w1", "school_admin_w1", "wave2_inhome")
   waves <- cfg$outcome$waves
-  if (identical(waves, "all")) waves <- 3:5
+  if (identical(waves, "all"))
+    waves <- supported_outcome_waves(cfg$outcome$family)
   wave_keys <- paste0("wave", as.integer(waves), "_inhome")
   wave_keys <- intersect(wave_keys, names(cfg$paths))
   if (isTRUE(cfg$mortality_sensitivity$enabled)) required <- c(required, "mortality")
@@ -86,10 +83,7 @@ required_input_keys <- function(cfg) {
 
 assert_restricted_inputs_present <- function(cfg) {
   required <- required_input_keys(cfg)
-  missing_value <- required[vapply(cfg$paths, function(path)
-    is.null(path) || length(path) != 1L || is.na(path) ||
-      !nzchar(trimws(as.character(path))), logical(1))]
-  absent <- required[!vapply(cfg$paths, function(path)
+  absent <- required[!vapply(cfg$paths[required], function(path)
     !is.null(path) && length(path) == 1L && !is.na(path) &&
       nzchar(trimws(as.character(path))) && file.exists(path), logical(1))]
   if (length(absent)) {
@@ -100,5 +94,5 @@ assert_restricted_inputs_present <- function(cfg) {
     stop("Restricted Add Health inputs are not fully configured/present: ",
          detail, call. = FALSE)
   }
-  invisible(list(required = required, missing_value = missing_value))
+  invisible(required)
 }

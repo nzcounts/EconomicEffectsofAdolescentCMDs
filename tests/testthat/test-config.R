@@ -14,14 +14,14 @@ testthat::test_that("configuration overlays merge without mutating defaults", {
   testthat::expect_false(cfg$stages$run_multiseed_att)
 })
 
-testthat::test_that("example YAML contains every required path key", {
+testthat::test_that("example YAML contains every path key", {
   testthat::skip_if_not_installed("yaml")
   example <- yaml::read_yaml(file.path(project_root, "config", "config.example.yml"))
   testthat::expect_setequal(names(example$paths), names(cfg$paths))
   testthat::expect_silent(assert_known_config_overlay(cfg, example))
 })
 
-testthat::test_that("primary input gate requires only analysis-relevant waves", {
+testthat::test_that("default input gate requires only the selected outcome wave", {
   required <- required_input_keys(cfg)
   testthat::expect_true(all(c("wave1_inhome", "wave2_inhome", "wave4_inhome",
                               "mortality") %in% required))

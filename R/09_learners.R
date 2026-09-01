@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 5929-6679.
-# Module role: Super Learner registry.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 7) LEARNER REGISTRY FOR FINAL TMLE
 # =============================================================================
 # Plain-English role: decide which machine-learning algorithms the final
@@ -237,8 +232,8 @@ register_custom_learners <- function(cfg) {
   if (isTRUE(lcfg$Q$use_earth)) {
     assign("SL.earth.fixed",
       function(Y, X, newX, family, obsWeights = NULL, ...) {
-        # v6 Fix A: earth rebuilds the call via a formula interface in some
-        # versions, which calls model.frame and requires a data.frame input.
+        # earth may rebuild the call through model.frame, which requires
+        # data.frame input.
         # Force X and newX to data.frame and ensure all columns are numeric.
         if (!is.data.frame(X))    X    <- as.data.frame(X,    stringsAsFactors = FALSE)
         if (!is.data.frame(newX)) newX <- as.data.frame(newX, stringsAsFactors = FALSE)
@@ -264,20 +259,20 @@ register_custom_learners <- function(cfg) {
         type = if (object$family_name == "binomial") "response" else "link"))
     }, envir = .GlobalEnv)
   }
-  # BUG FIX: stock SL.glmnet hardcodes alpha = 1 (pure LASSO) and ignores
-  # whatever is in cfg$learners$glmnet$alpha. With ~70% of columns being
+  # This wrapper passes the configured alpha to cv.glmnet because stock
+  # SL.glmnet uses alpha=1. With many columns arising from
   # dummy-expanded factors, pure LASSO arbitrarily picks one dummy per
   # correlated cluster and zeros the rest, producing high cross-fold variance.
-  # This wrapper passes alpha and nlambda from cfg through to cv.glmnet so
-  # the elastic-net configuration in cfg$learners$glmnet actually takes effect.
+  # Passing alpha and nlambda through to cv.glmnet makes the configured
+  # elastic-net specification operative.
   if (isTRUE(lcfg$Q$use_glmnet) || isTRUE(lcfg$g$use_glmnet) || isTRUE(lcfg$pi$use_glmnet)) {
     assign("SL.glmnet.fixed",
       function(Y, X, newX, family, obsWeights = NULL, id = NULL, ...) {
         if (!is.data.frame(X))    X    <- as.data.frame(X,    stringsAsFactors = FALSE)
         if (!is.data.frame(newX)) newX <- as.data.frame(newX, stringsAsFactors = FALSE)
         # glmnet wants a numeric matrix; model.matrix expands any residual
-        # factors to dummies. With Fix 2 the data has already been
-        # numerically expanded upstream, so this is mostly a no-op, but
+        # factors to dummies. The data is normally expanded upstream, so this
+        # is usually a no-op, but
         # remains for safety in case factor columns slip through.
         # Defensive: coerce NAs to zero (numeric) or "Missing" (factor) so
         # model.matrix's default na.action doesn't silently drop rows.
@@ -561,8 +556,8 @@ register_custom_learners <- function(cfg) {
         # weights expression through model.frame; a wrapper-local symbol such as
         # obsWeights is not reliably visible after SuperLearner evaluates the
         # learner call. Storing the normalized weights as .obsw and referring to
-        # that data column prevents the verified "object 'obsWeights' not found"
-        # hard failure without allowing .obsw to enter the explicitly constructed
+        # that data column keeps the weights available during evaluation
+        # without allowing .obsw to enter the explicitly constructed
         # predictor formula.
         train_dat <- data.frame(Y = Y, X, .obsw = obsWeights, check.names = FALSE)
         valid_dat <- data.frame(newX, check.names = FALSE)

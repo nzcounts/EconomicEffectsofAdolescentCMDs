@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 6680-10369.
-# Module role: Cross-fitted TMLE and ATT estimation.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 8) FINAL CV-TMLE
 # =============================================================================
 # Plain-English role: the main estimator. Splits the data into outer folds
@@ -18,11 +13,11 @@
 # (d) Predicts Q1W, Q0W, QAW, gn, piAW, pi1W, pi0W on validation rows.
 # (e) Runs the TMLE fluctuation step on held-out predictions to produce
 # targeted Qbar1W*, Qbar0W*.
-# (f) Assembles the ATE estimator and the efficient influence function
+# (f) Assembles the ATE and ATT estimators and their influence functions
 # on the bounded [0,1] outcome scale, back-transformed for variance.
 # (g) Uses the GSWGT1-weighted, REGION-stratified, PSUSCID-clustered
 # with-replacement survey design to build a 95% EIF interval.
-# v5 ADDITIONS:
+# Estimator safeguards and outputs:
 # * Cluster-aware SuperLearner internal CV via validRows in cvControl.
 # * Per-fold checkpointing: fold results written to RDS so that if the
 # process crashes, a rerun resumes from the last completed fold.
@@ -137,9 +132,13 @@ prepare_final_analysis_data <- function(main_df, cfg) {
     y_upper <- 1
     cap_value <- 1
   } else {
-    q_up <- compute_continuous_cap(
-      Y_raw[delta_Y == 1L], w_raw[delta_Y == 1L],
-      cfg$outcome$continuous_upper_quantile, cfg)
+    q_up <- if (identical(support$upper_rule, "fixed") && is.finite(support$upper)) {
+      support$upper
+    } else {
+      compute_continuous_cap(
+        Y_raw[delta_Y == 1L], w_raw[delta_Y == 1L],
+        cfg$outcome$continuous_upper_quantile, cfg)
+    }
     if (identical(support$lower_rule, "natural") && is.finite(support$lower)) {
       if (any(y_obs_vals < support$lower))
         stop("Observed outcome values fall below the verified natural lower bound.", call. = FALSE)
@@ -170,9 +169,12 @@ prepare_final_analysis_data <- function(main_df, cfg) {
        y_range = y_range,
        cap_value = if (identical(outcome_type, "continuous")) cap_value else NA_real_,
        cap_weighted = identical(outcome_type, "continuous") &&
+         !identical(support$upper_rule, "fixed") &&
          isTRUE(cfg$outcome$continuous_cap_weighted %||% TRUE),
        cap_qrule = if (identical(outcome_type, "continuous"))
-         cfg$outcome$continuous_cap_qrule %||% "hf8" else NA_character_)
+         if (identical(support$upper_rule, "fixed")) "fixed" else
+           cfg$outcome$continuous_cap_qrule %||% "hf8" else NA_character_,
+       cap_rule = if (identical(outcome_type, "continuous")) support$upper_rule else "fixed_binary")
 }
 
 make_final_cv_folds <- function(data_pack, cfg) {
@@ -695,7 +697,7 @@ warn_internal_valid_rows <- function(validRows, A_vec, label, cfg, fold_id, delt
 
 
 make_wave1_cache_fingerprint <- function(cfg) {
-  list(version = cfg$global$version %||% "v8.28_final_production",
+  list(version = cfg$global$version %||% "v8.33_restored_no_mortality_composite_sensitivity",
        script = pipeline_script_fingerprint(
       cfg, strict = isTRUE(cfg$global$require_script_md5 %||% FALSE)),
        paths = lapply(cfg$paths[c("wave1_inhome", "birth_records", "neighborhood_w1", "inschool_w1",
@@ -759,7 +761,7 @@ save_wave1_cache <- function(w1_all, path, cfg) {
 
 make_main_dataset_cache_fingerprint <- function(cfg, w1_all = NULL) {
   list(
-    version = cfg$global$version %||% "v8.28_final_production",
+    version = cfg$global$version %||% "v8.33_restored_no_mortality_composite_sensitivity",
     script = pipeline_script_fingerprint(
       cfg, strict = isTRUE(cfg$global$require_script_md5 %||% FALSE)),
     outcome_family = cfg$outcome$family,
@@ -867,7 +869,7 @@ save_main_dataset_cache <- function(main_df, path, cfg, w1_all) {
 }
 
 # Nested data-driven screen run on a final TMLE fold's training rows only.
-# This is the reviewer-responsive selection step. It uses marginal rough
+# This selection step uses marginal rough
 # screens only as a broad first pass, applies data-driven redundancy control,
 # and optionally runs a nested multivariable elastic-net screen on the rough
 # candidate pool. It does NOT force inclusion of exposure-only predictors.
@@ -965,8 +967,8 @@ greedy_redundancy_filter <- function(ranked_vars, X_base, max_vars,
   list(selected = selected, dropped = dropped)
 }
 
-# deterministic correlation-clustering redundancy filter.
-# Replaces the greedy keep-first filter. Variables are grouped into clusters by
+# Deterministic correlation-clustering redundancy filter.
+# Variables are grouped into clusters by
 # their signature correlation structure using hierarchical clustering, which is
 # order-independent and seed-independent (the same correlation matrix always
 # yields the same clusters). Each cluster is represented by a single
@@ -974,8 +976,8 @@ greedy_redundancy_filter <- function(ranked_vars, X_base, max_vars,
 # absolute correlation) to the cluster's SIGN-ALIGNED, standardized mean
 # signature. Sign-alignment flips members that are negatively correlated with a
 # reference before averaging, so the mean reinforces the shared signal instead
-# of cancelling it. This eliminates the seed-dependent "which member survives"
-# churn while keeping real variables (no synthetic columns injected downstream).
+# of cancelling it. The deterministic representative rule limits seed-dependent
+# membership changes while keeping observed variables in the downstream design.
 cluster_redundancy_filter <- function(ranked_vars, X_base, max_vars,
                                       cor_threshold = 0.90,
                                       linkage = "complete",
@@ -1062,10 +1064,10 @@ cluster_redundancy_filter <- function(ranked_vars, X_base, max_vars,
        n_clusters = n_clusters, n_singletons = n_singletons)
 }
 
-# (Option A): de-duplicate the FULL candidate set by correlation
-# clustering BEFORE marginal scoring. This prevents large blocks of mutually
-# redundant variables (e.g. ~85 contextual CST/BST codes measuring one spatial
-# construct) from consuming most of the top-N ranking slots and crowding out
+# De-duplicate the full candidate set by correlation
+# clustering before marginal scoring. This prevents large blocks of mutually
+# redundant contextual variables from consuming the top-N ranking slots and
+# crowding out
 # structurally distinct weak confounders. Because scoring has not happened yet,
 # there is no ranking; clustering uses only the correlation structure
 # (deterministic, seed-independent) and the stable column order of X_base for
@@ -1392,11 +1394,10 @@ run_nested_rough_prescreen_for_final <- function(main_df, train_idx, cfg, fold_i
   message(sprintf("    [fold %s screen] preprocessing done in %.1fs: %d columns after indicators/constants.",
                   as.character(fold_id), proc.time()[3] - t_prep, ncol(X_base)))
 
-  # (Option A): cluster the FULL candidate set BEFORE marginal scoring, so
-  # large redundant blocks collapse to single representatives before the top-N
-  # ranking caps are applied. This stops a block of ~85 mutually-correlated
-  # contextual variables from consuming most of the ranking slots and crowding
-  # out distinct weak confounders. Deterministic and seed-independent. Only the
+  # Cluster the full candidate set before marginal scoring so redundant blocks
+  # collapse to single representatives before the top-N ranking caps are
+  # applied. This prevents correlated contextual measures from crowding out
+  # structurally distinct candidates. The rule is deterministic, and only the
   # surviving representatives are scored and ranked below.
   # IMPORTANT: cluster only the SUBSTANTIVE (non-missingness-indicator) columns.
   # add_dual_missingness_indicators can roughly double the column count, which
@@ -1406,6 +1407,7 @@ run_nested_rough_prescreen_for_final <- function(main_df, train_idx, cfg, fold_i
   # clustering input (and hence from the size-guard count). When a substantive
   # variable is collapsed into a representative, its own missingness indicators
   # are dropped alongside it; representatives keep their indicators.
+
   cluster_assignments <- NULL   # returned for the cluster-assignment diagnostic
   if (identical(cfg$final_tmle$redundancy_method %||% "cluster", "cluster") &&
       isTRUE(cfg$final_tmle$rough_redundancy_control)) {
@@ -2003,9 +2005,9 @@ cluster_inference_from_eif <- function(
 }
 
 
-# The main driver. Runs one outer fold at a time; optional checkpoints are
-# disabled in the fixed first production run and may be enabled only for
-# exact resumptions after a successful fresh run.
+# The main driver runs one outer fold at a time. Optional checkpoints are
+# disabled by default and may be enabled for an exact resumption using
+# fingerprint-compatible fold results.
 run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
   if (is.null(main_df) || !is.data.frame(main_df))
     stop("run_final_cv_tmle requires a non-null main data frame.", call. = FALSE)
@@ -2081,6 +2083,8 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
   compensation_transform <- tolower(cfg$outcome$compensation_transform %||% "identity")
   is_raw_dollar_outcome <- identical(cfg$outcome$family, "Compensation") &&
     identical(compensation_transform, "identity")
+  policy_outcome_transform <- if (identical(cfg$outcome$family, "Compensation"))
+    compensation_transform else "identity"
   family_cfg_current <- cfg$outcome$families[[cfg$outcome$family]]
   report_ratio_translations <- compensation_ratio_translation_enabled(cfg)
   y_lower <- data_pack$y_lower; y_upper <- data_pack$y_upper
@@ -2161,9 +2165,9 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
         if (!is.null(cached$run_manifest_row)) run_manifest_rows[[v]] <- cached$run_manifest_row
         if (!is.null(cached$q_clip_log)) q_clip_log[[v]] <- cached$q_clip_log
         if (!is.null(cached$internal_support)) internal_fold_support_log[[paste0(v, "_cached")]] <- cached$internal_support
-        # (point 2): also restore cached cluster assignments, so a fold
-        # reused from checkpoint is not silently dropped from cluster_assignments.csv
-        # (needed to audit H1FS/H1GH over-collapse across ALL folds).
+        # Restore cached cluster assignments so a checkpointed fold is included
+        # in cluster_assignments.csv and the all-fold clustering audit.
+
         if (!is.null(cached$cluster_assignments) && nrow(cached$cluster_assignments) > 0L)
           cluster_assignment_log[[length(cluster_assignment_log) + 1L]] <- cached$cluster_assignments
         msg(sprintf("    Fingerprint OK; reused %d cached nuisance estimates (fold originally took %.1fs).",
@@ -2182,7 +2186,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
       sum(delta_Y[tr] == 1L), 100 * mean(delta_Y[tr])), cfg = cfg)
     obs_treated_train <- sum(A[tr] == 1L & delta_Y[tr] == 1L)
     obs_treated_valid <- sum(A[te] == 1L & delta_Y[te] == 1L)
-    # (point 3): per-fold binary event counts among OBSERVED rows
+    # Record per-fold binary event counts among observed rows
     # (delta==1), so a fold with treated rows but very few treated events or
     # non-events is visible for a binary outcome (e.g. LFP). NA for continuous.
     .isbin_fs <- identical(outcome_type, "binary")
@@ -2214,14 +2218,14 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
                       v, fold_support_log[[v]]$ess_treated_train,
                       cfg$final_tmle$min_ess_treated_train_warning %||% 20))
     # --- Nested data-driven screen on training rows only ----------------
-    # Reset fold-local selection objects so optional checkpoint metadata can
-    # never inherit an object created in a previous outer fold.
+    # Initialize fold-local selection objects independently so checkpoint
+    # metadata cannot carry an object across outer folds.
     rough_sel <- NULL
     # if a pre-specified W is supplied, bypass the nested screen and
     # use the fixed, theoretically-motivated variable list (intersected with
     # available columns). This supports the pre-specified-W sensitivity
-    # scenario that addresses the "data-driven selection introduced bias"
-    # objection. The list is the same in every fold by construction.
+    # scenario. The supplied list is the same in every fold by construction.
+
     prespec_W <- cfg$final_tmle$prespecified_W
     if (!is.null(prespec_W) && length(prespec_W) > 0L) {
       sel_vars <- intersect(prespec_W, names(main_df))
@@ -2310,14 +2314,23 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
       policy_primary_percentage = cfg$final_tmle$percentage_primary,
       policy_components_enabled = isTRUE(cfg$policy$enable_policy_components %||% TRUE),
       policy_translation_enabled = isTRUE(cfg$policy$enable_att_prevalence_translation %||% TRUE),
-      mortality_sensitivity_enabled = isTRUE(cfg$mortality_sensitivity$enabled %||% FALSE),
-      mortality_composite_zero_at_death =
-        isTRUE(cfg$mortality_sensitivity$composite_zero_at_death %||% FALSE),
-      mortality_fail_on_observed_outcome_contradiction = isTRUE(
-        cfg$mortality_sensitivity$fail_on_death_with_observed_original_outcome %||% TRUE),
-      mortality_source_variable = cfg$mortality_sensitivity$source_var %||% NA_character_,
-      mortality_death_year_start = cfg$mortality_sensitivity$death_year_start %||% NA_integer_,
-      mortality_death_year_end = cfg$mortality_sensitivity$death_year_end %||% NA_integer_,
+      mortality_sensitivity_enabled = mortality_enabled_for_wave(cfg, cfg$outcome$current_wave),
+      mortality_composite_zero_at_death = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        isTRUE(resolve_mortality_spec(cfg, cfg$outcome$current_wave)$composite_zero_at_death %||% FALSE) else FALSE,
+      mortality_fail_on_observed_outcome_contradiction = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        isTRUE(resolve_mortality_spec(cfg, cfg$outcome$current_wave)$fail_on_death_with_observed_original_outcome %||% TRUE) else NA,
+      mortality_source_variable = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        resolve_mortality_spec(cfg, cfg$outcome$current_wave)$source_var %||% NA_character_ else NA_character_,
+      mortality_source_month_variable = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        resolve_mortality_spec(cfg, cfg$outcome$current_wave)$source_month_var %||% NA_character_ else NA_character_,
+      mortality_timing_mode = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        resolve_mortality_spec(cfg, cfg$outcome$current_wave)$timing_mode %||% NA_character_ else NA_character_,
+      mortality_timing_rule = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        mortality_timing_rule_text(resolve_mortality_spec(cfg, cfg$outcome$current_wave)) else NA_character_,
+      mortality_death_year_start = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        resolve_mortality_spec(cfg, cfg$outcome$current_wave)$death_year_start %||% NA_integer_ else NA_integer_,
+      mortality_death_year_end = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+        resolve_mortality_spec(cfg, cfg$outcome$current_wave)$death_year_end %||% NA_integer_ else NA_integer_,
       wave2_completion_diagnostic_enabled =
         isTRUE(cfg$diagnostics$enable_wave2_completion_diagnostic %||% TRUE),
       mnar_pattern_mixture_enabled =
@@ -2422,7 +2435,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     idx_obs <- which(delta_tr == 1L)
     msg(sprintf("    [fold %d] Fitting Q on %d outcome-observed training rows...", v, length(idx_obs)), cfg = cfg)
     t_Q <- proc.time()[3]
-    # v6 Fix B: data.frame (not cbind) guarantees a data.frame result.
+    # data.frame() guarantees a data.frame result.
     # cbind(vector, data.frame) can return a matrix under R's method dispatch,
     # which breaks earth's formula path and other learners that call model.frame.
     X_Q_tr  <- data.frame(A = A_tr, W_tr, check.names = FALSE)[idx_obs, , drop = FALSE]
@@ -2534,7 +2547,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     # --- Fit pi (outcome-observed | A, W) ---------------------------------
     msg(sprintf("    [fold %d] Fitting pi (outcome-observed | A,W)...", v), cfg = cfg)
     t_pi <- proc.time()[3]
-    # v6 Fix B: data.frame guarantees a data.frame; see Q block above.
+    # data.frame() guarantees the input class required by formula learners.
     X_pi_tr    <- data.frame(A = A_tr,              W_tr, check.names = FALSE)
     X_pi_te_A1 <- data.frame(A = rep(1L, n_te),     W_te, check.names = FALSE)
     X_pi_te_A0 <- data.frame(A = rep(0L, n_te),     W_te, check.names = FALSE)
@@ -2591,7 +2604,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     pi_1W_raw[te] <- pi_1W_v
     pi_0W_raw[te] <- pi_0W_v
     pi_AW_raw[te] <- pi_AW_v
-    # Both-sided clipping (v5)
+    # Apply the configured lower and upper probability bounds.
     pi_1W_v <- pmin(pmax(pi_1W_v, cfg$final_tmle$pi_lower), cfg$final_tmle$pi_upper)
     pi_0W_v <- pmin(pmax(pi_0W_v, cfg$final_tmle$pi_lower), cfg$final_tmle$pi_upper)
     pi_AW_v <- pmin(pmax(pi_AW_v, cfg$final_tmle$pi_lower), cfg$final_tmle$pi_upper)
@@ -2759,15 +2772,15 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
   msg(sprintf("    ATE fluctuation epsilon = %.6f; normalized score = %.3e.",
               eps_hat, ate_target$normalized_score), cfg = cfg)
 
-  # BUG FIX: counterfactual updates must use INTERVENTION-SPECIFIC
-  # clever covariates evaluated at A=1 and A=0 respectively, NOT the
-  # observed-data clever covariate. The observed A and delta_Y belong in
-  # the fluctuation regression (which fits eps_hat above) and the EIF
-  # residual term, not in the counterfactual update itself. The previous
-  # implementation zeroed out the targeting correction for rows where
-  # A != 1 (in the Q*(1,W) update) and delta_Y == 0 (in either update),
-  # which biased the targeted means toward the initial Q estimates exactly
-  # at the rows where targeting is supposed to do the most work.
+  # Counterfactual updates use intervention-specific clever covariates evaluated
+  # at A=1 and A=0. Observed A and delta_Y enter the fluctuation regression and
+  # the EIF residual term, while every row receives both counterfactual updates.
+  # H1_all targets Q*(1,W) with g and pi under A=1; H0_all targets Q*(0,W)
+  # with the corresponding control-arm propensity and response probability.
+
+
+
+
   H1_all <- 1 / gn        / pi_1W   # clever covariate at A=1, every row
   H0_all <- -1 / (1 - gn) / pi_0W   # clever covariate at A=0, every row
   Qstar1W <- stats::plogis(stats::qlogis(Qbar1W) + eps_hat * H1_all)
@@ -2776,7 +2789,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
   Qstar1W_orig <- Qstar1W * y_range + y_lower
   Qstar0W_orig <- Qstar0W * y_range + y_lower
 
-  # Weighted ATE on original scale. Also compute reviewer-facing
+  # Weighted ATE on the original outcome scale. Also compute diagnostic
   # comparators from the same cross-fitted nuisance estimates:
   # - initial plug-in using Qbar before targeting;
   # - initial AIPW/one-step estimator using Qbar, g, and pi.
@@ -2801,13 +2814,13 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
               psi_hat, psi_plugin_initial, psi_aipw_initial), cfg = cfg)
 
   # ==========================================================================
-  # Positivity remediation -- ATT and overlap-trimmed ATE.
-  # The full-sample ATE above requires overlap across the entire covariate
-  # space. At 9% prevalence with a rich W, ~50% of rows had g*pi1 < 0.05
-  # (treated-arm non-overlap), so E[Y(1)|W] is extrapolated where no treated
-  # units exist. The ATT and trimmed ATE are BETTER-IDENTIFIED estimands,
-  # reported as SECONDARY columns by default. They become the headline only
-  # if cfg$final_tmle$primary_estimand is set to "att" or "trimmed".
+  # ATT and overlap-trimmed ATE calculations.
+  # The full-sample ATE requires overlap across the complete covariate space.
+  # The ATT instead requires comparable-control support for treated units, and
+  # the trimmed ATE restricts inference to the configured propensity band.
+  # All estimands are labeled separately; primary_estimand determines which
+  # estimate and interval populate the headline fields.
+  #
   # --------------------------------------------------------------------------
   # ==========================================================================
   # ATT estimation on the configured bounded outcome scale.
@@ -2858,7 +2871,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
       stop("ATT undefined: no positive survey-weighted treated mass.", call. = FALSE)
 
     # Initial-Q plug-in and one-step AIPTW comparator on the canonical bounded
-    # original-dollar outcome.
+    # original outcome scale.
     att_plugin_estimate <- sum(w_norm * A * (Qbar1W_orig - Qbar0W_orig)) / den_att
     resid_initial <- ifelse(delta_Y == 1L, Y_bounded_orig - QbarAW_orig, 0)
     att_resid_onestep <- A * resid_initial / pi_AW -
@@ -2939,8 +2952,8 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     cl_eic_att_tmle <- inf_att$cluster_eic
     J_att <- inf_att$J; fsc_att <- inf_att$fsc
 
-    # Scale-free centering checks. The dollar mean is retained for audit, but
-    # the production gate uses the outcome-range-scaled mean.
+    # Scale-free centering checks. The raw outcome-scale mean is recorded, while
+    # the acceptance gate uses the outcome-range-scaled mean.
     att_tmle_eif_mean <- sum(w_norm * D_att_tmle) / length(weights)
     att_tmle_eif_mean_scaled <- att_tmle_eif_mean / y_range
     mu1_eif_mean_scaled <- (sum(w_norm * D_mu1) / length(weights)) / y_range
@@ -3000,7 +3013,7 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
         }
   
         if (isTRUE(cfg$policy$enable_att_prevalence_translation %||% TRUE) &&
-            isTRUE(is_raw_dollar_outcome)) {
+            isTRUE(report_ratio_translations)) {
           translation_ready <- is.finite(natural_course_mean) && natural_course_mean > 0
           if (!translation_ready) {
             msg_txt <- "ATT prevalence elasticity requires a positive natural-course mean."
@@ -3052,18 +3065,23 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
               relative_prevalence_reduction = r,
               baseline_depression_prevalence = treatment_prevalence,
               post_policy_depression_prevalence = treatment_prevalence * (1 - r),
-              implied_population_mean_earnings_gain = gain,
+              implied_population_mean_outcome_gain = gain,
+              implied_population_mean_earnings_gain =
+                if (identical(cfg$outcome$family, "Compensation")) gain else NA_real_,
               gain_se = inf_gain$se,
               gain_ci_lower = inf_gain$ci[1L],
               gain_ci_upper = inf_gain$ci[2L],
-              relative_population_earnings_gain = rel_gain,
+              relative_population_outcome_gain = rel_gain,
+              relative_population_earnings_gain =
+                if (identical(cfg$outcome$family, "Compensation")) rel_gain else NA_real_,
               relative_gain_se = inf_rel_gain$se,
               relative_gain_ci_lower = inf_rel_gain$ci[1L],
               relative_gain_ci_upper = inf_rel_gain$ci[2L],
               outcome_scale = cfg$policy$outcome_scale_label %||%
                 "configured bounded/capped outcome",
-              outcome_transform = compensation_transform,
-              cap_quantile = cfg$outcome$continuous_upper_quantile,
+              outcome_transform = policy_outcome_transform,
+              cap_quantile = if (identical(cfg$outcome$family, "Compensation"))
+                cfg$outcome$continuous_upper_quantile else NA_real_,
               assumption = paste0(
                 "Prevented cases have the current treated-population ATT; ",
                 "the translation applies to the configured bounded/capped outcome."),
@@ -3100,10 +3118,11 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
       }
     }
 
-    # Optional ratio translations with their own delta-method EIFs and the same
+    # Ratio translations with their own delta-method EIFs and the same
     # REGION-stratified PSU design inference used for the ATT. These are enabled
-    # only for outcome families whose verified scale supports ratios, currently
-    # raw annual Compensation. Other outcomes retain the ATT on their own scale.
+    # for every verified outcome on an identity scale with positive targeted
+    # component means. Raw annual Compensation, binary probabilities, and
+    # unconditional weekly hours all meet that scale requirement.
     if (isTRUE(report_ratio_translations)) {
       if (!is.finite(mu1_att) || !is.finite(mu0_att) || mu1_att <= 0 || mu0_att <= 0)
         stop("Ratio translation is undefined because a targeted ATT component mean is non-positive.", call. = FALSE)
@@ -3392,9 +3411,9 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     msg(sprintf("  [TMLE] Nested rough-selection log written: %s", basename(p_sel)), cfg = cfg)
   }
 
-  # cluster-assignment diagnostic. Lets a reviewer verify the pre-score
-  # correlation clustering did NOT over-collapse meaningful confounders (e.g. the
-  # baseline mental-health H1FS block): each row is one member variable with its
+  # The cluster-assignment diagnostic checks whether pre-score correlation
+  # clustering over-collapsed meaningful confounders such as the baseline
+  # mental-health H1FS block. Each row is one member variable with its
   # cluster id, representative, cluster size, correlation to the representative,
   # and whether the cluster/representative was ultimately selected. Multi-member
   # clusters containing distinct substantive variables would be the warning sign.
@@ -3455,6 +3474,12 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
   res_df <- data.frame(
     run_id = cfg$global$run_id %||% NA_character_,
     pipeline_version = cfg$global$version %||% NA_character_,
+    outcome_family = cfg$outcome$family,
+    outcome_wave = as.integer(cfg$outcome$current_wave),
+    outcome_family_member = cfg$outcome$family_member %||% NA_character_,
+    outcome_primary = if (!is.null(cfg$outcome$family_member) &&
+        !is.null(family_cfg_current$members[[cfg$outcome$family_member]]))
+      isTRUE(family_cfg_current$members[[cfg$outcome$family_member]]$primary) else TRUE,
     script_md5 = get_frozen_source_fingerprint(cfg)$md5,
     analysis_spec_md5 = get_frozen_config_hash(cfg, "analysis"),
     resolved_run_config_md5 = get_frozen_config_hash(cfg, "resolved"),
@@ -3481,7 +3506,8 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     primary_se_psu_only_sensitivity = primary_inf$se_cluster_only,
     primary_ci_lower_psu_only_sensitivity = primary_inf$ci_cluster_only[1],
     primary_ci_upper_psu_only_sensitivity = primary_inf$ci_cluster_only[2],
-    cap_probability = if (identical(outcome_type, "continuous"))
+    cap_probability = if (identical(outcome_type, "continuous") &&
+        !identical(data_pack$cap_rule, "fixed"))
       cfg$outcome$continuous_upper_quantile else NA_real_,
     cap_value = data_pack$cap_value,
     cap_weighted = data_pack$cap_weighted,
@@ -3490,9 +3516,11 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     cap_censoring_adjusted = if (identical(outcome_type, "continuous")) FALSE else NA,
     cap_quantile_rule = data_pack$cap_qrule,
     cap_population = if (identical(outcome_type, "continuous"))
-      "pooled outcome-observed analytic sample" else NA_character_,
+      if (identical(data_pack$cap_rule, "fixed")) "fixed verified outcome support" else
+        "pooled outcome-observed analytic sample" else NA_character_,
     cap_inference_interpretation = if (identical(outcome_type, "continuous"))
-      "conditional_on_realized_empirical_cap" else NA_character_,
+      if (identical(data_pack$cap_rule, "fixed")) "fixed_predefined_support" else
+        "conditional_on_realized_empirical_cap" else NA_character_,
     compensation_transform = if (identical(cfg$outcome$family, "Compensation"))
       compensation_transform else NA_character_,
     compensation_exact_only = if (identical(cfg$outcome$family, "Compensation"))
@@ -3506,10 +3534,15 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     tmle_minus_plugin_initial = ate_full_estimate - psi_plugin_initial,
     tmle_minus_aipw_initial = ate_full_estimate - psi_aipw_initial,
     att_estimate = att_estimate, att_se = att_se,
+    att_percentage_points = if (identical(outcome_type, "binary")) 100 * att_estimate else NA_real_,
+    att_percentage_points_se = if (identical(outcome_type, "binary")) 100 * att_se else NA_real_,
+    att_percentage_points_ci_lower = if (identical(outcome_type, "binary")) 100 * att_tmle_ci_lower else NA_real_,
+    att_percentage_points_ci_upper = if (identical(outcome_type, "binary")) 100 * att_tmle_ci_upper else NA_real_,
+    att_percentage_points_p = if (identical(outcome_type, "binary")) att_tmle_p_value else NA_real_,
     att_headline_method = att_headline_method,
     att_mu1 = mu1_att,
     att_mu0 = mu0_att,
-    # Legacy Compensation-specific aliases retained only for Compensation.
+    # Compensation-specific output aliases are populated only for that family.
     att_mu1_earnings_depressed = if (identical(cfg$outcome$family, "Compensation")) mu1_att else NA_real_,
     att_mu0_earnings_no_depression = if (identical(cfg$outcome$family, "Compensation")) mu0_att else NA_real_,
     att_mu1_se = mu1_att_se, att_mu0_se = mu0_att_se,
@@ -3530,13 +3563,24 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
     policy_primary_pct_ci_upper = pct_primary_ci[2],
     policy_primary_pct_p = pct_primary_p,
     policy_components_enabled = isTRUE(cfg$policy$enable_policy_components %||% TRUE),
-    policy_translation_enabled = isTRUE(cfg$policy$enable_att_prevalence_translation %||% TRUE),
-    mortality_sensitivity_enabled = isTRUE(cfg$mortality_sensitivity$enabled %||% FALSE),
-    mortality_composite_zero_at_death =
-      isTRUE(cfg$mortality_sensitivity$composite_zero_at_death %||% FALSE),
-    mortality_source_variable = cfg$mortality_sensitivity$source_var %||% NA_character_,
-    mortality_death_year_start = cfg$mortality_sensitivity$death_year_start %||% NA_integer_,
-    mortality_death_year_end = cfg$mortality_sensitivity$death_year_end %||% NA_integer_,
+    policy_translation_enabled = isTRUE(
+      cfg$policy$enable_att_prevalence_translation %||% TRUE) &&
+      isTRUE(report_ratio_translations),
+    mortality_sensitivity_enabled = mortality_enabled_for_wave(cfg, cfg$outcome$current_wave),
+    mortality_composite_zero_at_death = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      isTRUE(resolve_mortality_spec(cfg, cfg$outcome$current_wave)$composite_zero_at_death) else FALSE,
+    mortality_source_variable = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave)$source_var else NA_character_,
+    mortality_source_month_variable = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave)$source_month_var else NA_character_,
+    mortality_timing_mode = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave)$timing_mode else NA_character_,
+    mortality_timing_rule = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      mortality_timing_rule_text(resolve_mortality_spec(cfg, cfg$outcome$current_wave)) else NA_character_,
+    mortality_death_year_start = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave)$death_year_start else NA_integer_,
+    mortality_death_year_end = if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave)$death_year_end else NA_integer_,
     bounded_natural_course_population_mean = natural_course_mean,
     bounded_natural_course_population_mean_se = natural_course_mean_se,
     natural_course_population_mean = natural_course_mean,
@@ -3641,10 +3685,14 @@ run_final_cv_tmle <- function(cfg, main_df, timers = NULL) {
       pct_primary_ci[1], pct_primary_ci[2], pct_primary_p,
       ate_full_estimate, ate_full_se), cfg = cfg)
   } else {
+    policy_line <- if (isTRUE(report_ratio_translations)) sprintf(
+      "\n  POLICY-FACING %s: %.2f%%, SE %.2f, 95%% CI [%.2f%%, %.2f%%], p = %.4g",
+      pct_primary_name, pct_primary_estimate, pct_primary_se,
+      pct_primary_ci[1], pct_primary_ci[2], pct_primary_p) else ""
     msg(sprintf(
-      "\n===== Final CV-TMLE COMPLETE =====\n  ATT (%s): %.4f, SE %.4f, 95%% CI [%.4f, %.4f], p = %.4g\n  Full-sample ATE (secondary): %.4f, SE %.4f.\n==================================\n",
+      "\n===== Final CV-TMLE COMPLETE =====\n  ATT (%s): %.4f, SE %.4f, 95%% CI [%.4f, %.4f], p = %.4g%s\n  Full-sample ATE (secondary): %.4f, SE %.4f.\n==================================\n",
       estimand_label, head_est, head_se, head_ci[1], head_ci[2], head_p,
-      ate_full_estimate, ate_full_se), cfg = cfg)
+      policy_line, ate_full_estimate, ate_full_se), cfg = cfg)
   }
 
   if (!is.null(timers)) timers$stop("final_cv_tmle")

@@ -1,8 +1,4 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 15585-15912.
-# Module role: Multi-seed stability diagnostic.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
+# =============================================================================
 # 12b) MULTI-SEED ATT ALGORITHMIC-STABILITY DIAGNOSTIC
 # =============================================================================
 # Runs the complete pipeline under a fixed seed set and reports the spread of
@@ -44,8 +40,8 @@ write_multiseed_selection_stability <- function(selection_sets, out_dir, cfg) {
     core_fingerprint_md5 = object_md5(z$core),
     stringsAsFactors = FALSE)))
   write_provenance_csv_at_path(per_seed, cfg,
-    file.path(out_dir, "multiseed_selection_per_seed.csv"),
-    "multiseed_selection_per_seed.csv", overwrite = TRUE)
+    file.path(out_dir, "ms_sel_seed.csv"),
+    "ms_sel_seed.csv", overwrite = TRUE)
 
   tags <- unique(vapply(flat, `[[`, character(1), "run_tag"))
   freq_rows <- list(); jac_rows <- list()
@@ -80,12 +76,12 @@ write_multiseed_selection_stability <- function(selection_sets, out_dir, cfg) {
   }
   if (length(freq_rows)) write_provenance_csv_at_path(
     do.call(rbind, freq_rows), cfg,
-    file.path(out_dir, "multiseed_selection_variable_frequency.csv"),
-    "multiseed_selection_variable_frequency.csv", overwrite = TRUE)
+    file.path(out_dir, "ms_sel_freq.csv"),
+    "ms_sel_freq.csv", overwrite = TRUE)
   if (length(jac_rows)) write_provenance_csv_at_path(
     do.call(rbind, jac_rows), cfg,
-    file.path(out_dir, "multiseed_selection_pairwise_jaccard.csv"),
-    "multiseed_selection_pairwise_jaccard.csv", overwrite = TRUE)
+    file.path(out_dir, "ms_sel_jac.csv"),
+    "ms_sel_jac.csv", overwrite = TRUE)
   invisible(per_seed)
 }
 
@@ -93,12 +89,21 @@ run_multiseed_att <- function(base_cfg,
                               seeds = NULL,
                               out_dir = NULL,
                               fresh = FALSE) {
+  base_cfg <- apply_outcome_runtime_defaults(base_cfg)
   base_cfg <- ensure_run_id(base_cfg)
   validate_cfg(base_cfg)
   load_required_packages(base_cfg)
   if (isTRUE(base_cfg$stages$run_preflight_unit_test))
     run_preflight_unit_test(base_cfg)
   base_cfg$stages$run_preflight_unit_test <- FALSE
+  # Multi-seed runs must be able to rebuild preprocessing artifacts when a
+  # a version or source fingerprint makes a cache incompatible. Prefer compatible
+  # caches, but never make a harmless cache miss fatal because the caller had
+  # disabled construction stages.
+  base_cfg$stages$run_read_wave1_phase <- TRUE
+  base_cfg$stages$run_build_main_dataset_phase <- TRUE
+  base_cfg$cache$use_cached_wave1 <- TRUE
+  base_cfg$cache$use_cached_main_dataset <- TRUE
   if (is.null(seeds) || !length(seeds))
     stop("run_multiseed_att: no seeds supplied; set cfg$global$multiseed_seeds.", call. = FALSE)
   seeds <- as.integer(seeds)
@@ -107,13 +112,13 @@ run_multiseed_att <- function(base_cfg,
   out_dir <- out_dir %||% base_cfg$global$output_dir
   ensure_output_dir(out_dir, cfg = base_cfg, test_write = TRUE)
   message(sprintf("\n===== STAGE: Multi-seed ATT algorithmic stability (%d seeds) =====", length(seeds)))
-  per_seed_csv <- file.path(out_dir, "multiseed_att_per_seed.csv")
-  agg_csv <- file.path(out_dir, "multiseed_att_aggregate.csv")
-  checkpoint <- file.path(out_dir, "multiseed_checkpoint.rds")
+  per_seed_csv <- file.path(out_dir, "ms_seed.csv")
+  agg_csv <- file.path(out_dir, "ms_sum.csv")
+  checkpoint <- file.path(out_dir, "ms_ck.rds")
   selection_paths <- file.path(out_dir, c(
-    "multiseed_selection_per_seed.csv",
-    "multiseed_selection_variable_frequency.csv",
-    "multiseed_selection_pairwise_jaccard.csv"))
+    "ms_sel_seed.csv",
+    "ms_sel_freq.csv",
+    "ms_sel_jac.csv"))
 
   aggregate_cfg <- base_cfg
   aggregate_cfg$global$output_dir <- out_dir
@@ -164,9 +169,9 @@ run_multiseed_att <- function(base_cfg,
                               archive_existing_path(q, "FRESH"))
       }
     }
-    # Archived prior artifacts remain as clearly named siblings inside the
-    # multiseed root; permit only those explicit archive names (and the normal
-    # run-log allowlist) while still rejecting every unknown stale entry.
+    # Files archived by fresh=TRUE receive explicit names inside the multiseed
+    # root. Permit those names and the normal run-log allowlist while rejecting
+    # every other unexpected entry.
     allowed_fresh <- unique(c(
       base_cfg$safety$fresh_output_allowed_basenames %||% character(0),
       basename(archived_fresh)))
@@ -186,7 +191,7 @@ run_multiseed_att <- function(base_cfg,
     if (!all(vapply(schemas, identical, logical(1), schemas[[1L]])))
       stop("Multi-seed result-schema drift detected; do not combine incompatible runs.", call. = FALSE)
     write_provenance_csv_at_path(do.call(rbind, collected), aggregate_cfg,
-      per_seed_csv, "multiseed_att_per_seed.csv", overwrite = TRUE)
+      per_seed_csv, "ms_seed.csv", overwrite = TRUE)
   }
 
   par_cores <- suppressWarnings(as.integer(base_cfg$global$multiseed_parallel_cores %||% 1L))
@@ -320,7 +325,7 @@ run_multiseed_att <- function(base_cfg,
   }))
   rownames(agg) <- NULL
   write_provenance_csv_at_path(agg, aggregate_cfg, agg_csv,
-                               "multiseed_att_aggregate.csv", overwrite = TRUE)
+                               "ms_sum.csv", overwrite = TRUE)
   write_multiseed_selection_stability(selection_collected, out_dir, aggregate_cfg)
   verify_frozen_source_unchanged(aggregate_cfg)
   message(sprintf("  [multiseed] wrote per-seed (%s), aggregate (%s), and selection-stability artifacts.",

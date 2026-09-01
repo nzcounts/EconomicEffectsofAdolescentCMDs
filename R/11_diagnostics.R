@@ -1,12 +1,7 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 10370-13032.
-# Module role: Peer-review diagnostics.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
-# 9) PEER-REVIEW DIAGNOSTICS
+# 9) ESTIMATION DIAGNOSTICS
 # =============================================================================
-# Plain-English role: produce the standard set of figures and tables a
-# reviewer will want to see alongside the headline effect. Covariate balance,
+# Plain-English role: produce figures and tables that assess the headline
+# estimate. Outputs cover covariate balance,
 # propensity distributions, learner weights, overlap products, fold timings,
 # QQ plot of the cluster-level EIC, and a CONSORT-style sample-flow CSV.
 
@@ -1113,7 +1108,7 @@ build_att_mnar_pattern_mixture <- function(tmle_fit, cfg) {
 }
 
 # ---------------------------------------------------------------------------
-# MNAR sensitivity extensions (v8.28): shared fixed-nuisance machinery.
+# Shared fixed-nuisance machinery for MNAR sensitivity diagnostics.
 # ---------------------------------------------------------------------------
 # Extracts the pieces of the TARGETED ATT fit needed to re-evaluate the point
 # estimate under alternative assumptions about the conditional mean of the
@@ -1121,7 +1116,7 @@ build_att_mnar_pattern_mixture <- function(tmle_fit, cfg) {
 # the estimand, or touches the primary ATT: every downstream diagnostic is a
 # deterministic function of quantities already produced by run_final_cv_tmle().
 #
-# All three new diagnostics route through this helper and through
+# All three diagnostics route through this helper and through
 # mnar_net_shift_from_means() so that they are numerically consistent with
 # att_mnar_pattern_mixture.csv by construction (identical arithmetic; only the
 # choice of the non-responder conditional means differs).
@@ -1358,7 +1353,7 @@ build_att_mnar_calibrated <- function(tmle_fit, cfg) {
          call. = FALSE)
   cmp <- mnar_fixed_nuisance_components(ac)
   bd <- build_att_mnar_breakdown(tmle_fit, cfg)
-  if (!nrow(bd) || all(is.na(bd$breakdown_delta_sd_abs))) return(data.frame())
+  if (!nrow(bd)) stop("Calibrated MNAR sensitivity could not obtain the breakdown diagnostic.", call. = FALSE)
 
   obs <- cmp$obs
   pv <- cmp$pi_AW[obs]; yv <- cmp$Y_obs[obs]; wv <- cmp$weights[obs]
@@ -1617,10 +1612,16 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
   if (!is.null(tmle_fit) && !is.null(tmle_fit$att_components)) {
     ac_audit <- tmle_fit$att_components
     capped <- is.finite(ac_audit$Y_raw) & ac_audit$Y_raw > ac_audit$y_upper
-    mort_cfg <- cfg$mortality_sensitivity %||% list()
-    interview_var <- mort_cfg$interview_year_var %||% "IYEAR4"
-    interview_year <- if (interview_var %in% names(main_df))
+    mort_cfg <- if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave) else list(enabled = FALSE)
+    interview_var <- mort_cfg$interview_year_var %||% NULL
+    interview_month_var <- mort_cfg$interview_month_var %||% NULL
+    timing_status_var <- mort_cfg$timing_status_var %||% NULL
+    interview_year <- if (!is.null(interview_var) && interview_var %in% names(main_df))
       suppressWarnings(as.integer(main_df[[interview_var]])) else
+      rep(NA_integer_, nrow(main_df))
+    interview_month <- if (!is.null(interview_month_var) && interview_month_var %in% names(main_df))
+      suppressWarnings(as.integer(main_df[[interview_month_var]])) else
       rep(NA_integer_, nrow(main_df))
     compact_year_counts <- function(x) {
       tab <- table(x[is.finite(x)], useNA = "no")
@@ -1650,28 +1651,36 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       analytic_psu_n = length(unique(cluster)),
       full_design_psu_n = flow$full_design_psu %||% NA_integer_,
       strata_n = length(unique(main_df[[cfg$analysis$strata_var]])),
-      interview_year_variable = interview_var,
+      interview_year_variable = interview_var %||% NA_character_,
+      interview_month_variable = interview_month_var %||% NA_character_,
       interview_year_observed_n = sum(is.finite(interview_year)),
+      interview_month_observed_n = sum(is.finite(interview_month)),
+      complete_interview_date_n = sum(is.finite(interview_year) & is.finite(interview_month)),
       interview_year_missing_n = sum(!is.finite(interview_year)),
+      interview_month_missing_n = sum(!is.finite(interview_month)),
       interview_year_counts = compact_year_counts(interview_year),
-      interview_year_role = "audit_only_never_used_for_mortality_classification",
+      mortality_timing_status_counts = if (!is.null(timing_status_var) &&
+          timing_status_var %in% names(main_df)) {
+        tab <- table(main_df[[timing_status_var]], useNA = "ifany")
+        paste(paste0(names(tab), "=", as.integer(tab)), collapse = ";")
+      } else NA_character_,
       mortality_classification_source = if (isTRUE(mort_cfg$enabled %||% FALSE))
-        mort_cfg$source_var %||% "NDIDD19Y" else NA_character_,
+        paste(mort_cfg$source_var %||% "NDIDD19Y",
+              mort_cfg$source_month_var %||% "NDIDD19M", sep = "+") else NA_character_,
       mortality_classification_window = if (isTRUE(mort_cfg$enabled %||% FALSE))
-        sprintf("%d-%d inclusive", as.integer(mort_cfg$death_year_start),
-                as.integer(mort_cfg$death_year_end)) else NA_character_,
+        mortality_timing_rule_text(mort_cfg) else NA_character_,
       mortality_death_with_interview_year_n = if (isTRUE(mort_cfg$enabled %||% FALSE) &&
-          mort_cfg$death_before_outcome_var %in% names(main_df))
+          !is.null(interview_var) && mort_cfg$death_before_outcome_var %in% names(main_df))
         sum(main_df[[mort_cfg$death_before_outcome_var]] == 1L & is.finite(interview_year),
             na.rm = TRUE) else NA_integer_,
       mortality_death_without_interview_year_n = if (isTRUE(mort_cfg$enabled %||% FALSE) &&
-          mort_cfg$death_before_outcome_var %in% names(main_df))
+          !is.null(interview_var) && mort_cfg$death_before_outcome_var %in% names(main_df))
         sum(main_df[[mort_cfg$death_before_outcome_var]] == 1L & !is.finite(interview_year),
             na.rm = TRUE) else NA_integer_,
       dollar_price_year = NA_integer_,
-      dollar_basis = mort_cfg$earnings_price_basis %||%
-        "nominal_past_year_dollars_no_inflation_adjustment",
-      inflation_adjustment_applied = FALSE,
+      dollar_basis = if (identical(cfg$outcome$family, "Compensation"))
+        "nominal_past_year_dollars_no_inflation_adjustment" else NA_character_,
+      inflation_adjustment_applied = if (identical(cfg$outcome$family, "Compensation")) FALSE else NA,
       stringsAsFactors = FALSE)
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(analysis_audit, cfg, out_dir,
@@ -2505,7 +2514,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
           psi <- sum(ww * (tmle_fit$Qstar1W_orig[keep] - tmle_fit$Qstar0W_orig[keep]), na.rm = TRUE) / sum(ww, na.rm = TRUE)
           # Reference is the full-sample ATE (ate_tmle), since this leave-out
           # plug-in is computed over all remaining rows (untrimmed). Falls back
-          # to estimate if ate_tmle is absent (older result objects).
+          # to estimate if ate_tmle is unavailable.
           ref_full <- if (!is.null(tmle_fit$result$ate_tmle)) tmle_fit$result$ate_tmle[1] else tmle_fit$result$estimate[1]
           data.frame(drop_top_abs_clusters = kdrop, dropped_clusters = paste(drop_cl, collapse = ";"),
                      n_remaining = sum(keep), estimate_plugin_targeted_remaining = psi,
@@ -2571,7 +2580,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
                        cfg$diagnostics$mnar_pattern_mixture_csv %||%
                          "att_mnar_pattern_mixture.csv")
     }
-    # --- MNAR sensitivity extensions (v8.28) --------------------------------
+    # --- Fixed-nuisance MNAR sensitivity diagnostics -------------------------
     # Fixed-nuisance, no refit, estimand unchanged.  Each is wrapped in
     # run_optional() so that a failure here can never abort a completed run.
     if (isTRUE(cfg$diagnostics$enable_mnar_breakdown %||% TRUE)) {

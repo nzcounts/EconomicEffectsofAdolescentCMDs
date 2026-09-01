@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 1856-3337.
-# Module role: Shared utilities and provenance helpers.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 2) SMALL UTILITIES
 # =============================================================================
 
@@ -201,22 +196,79 @@ assert_planned_output_paths <- function(cfg, extra_filenames = character(0)) {
 }
 
 
-# v6: Build a unique, self-describing filename for an output file.
+# Build a unique, self-describing filename for an output file.
 # The filename includes the base name, a tag summarizing the run (family,
 # wave, family_member, run_label), and an optional timestamp so
 # repeat runs never overwrite each other.
 # Example: "cv_tmle_results__HealthStatus__wave3__at_least_good__2026-04-23_143205.csv"
+short_name_hash <- function(x) {
+  ints <- utf8ToInt(enc2utf8(as.character(x)))
+  h <- 0
+  for (z in ints) h <- (h * 131 + z) %% 2147483647
+  sprintf("%08x", as.integer(h))
+}
+
+compact_output_basename <- function(base_filename, cfg) {
+  if (!isTRUE(cfg$global$short_file_names %||% FALSE)) return(base_filename)
+  ext_match <- regexpr("\\.[A-Za-z0-9]+$", base_filename)
+  if (ext_match > 0L) {
+    stem <- substr(base_filename, 1L, ext_match - 1L)
+    ext <- substr(base_filename, ext_match, nchar(base_filename))
+  } else { stem <- base_filename; ext <- "" }
+  repl <- c(
+    "cv_tmle_results"="tmle", "pipeline_timings"="time",
+    "sample_flow"="flow", "analysis_sample_audit"="sample",
+    "diagnostic_status"="status", "manuscript_summary"="msum",
+    "diagnostic_fit_bundle"="fit", "variable_selection_consistency"="sel_cons",
+    "learner_weight_summary"="lw_sum", "learner_weight_long"="lw",
+    "nuisance_outer_validation_summary"="nuis_val", "effective_sample_size"="ess",
+    "positivity_summary"="pos", "att_inference_robustness"="att_inf",
+    "att_positivity_control_weights"="att_pos", "protected_h1fs_att_balance"="h1_bal",
+    "att_g_pi_clip_sensitivity"="clip", "att_mnar_breakdown_point"="mnar_bd",
+    "att_mnar_calibrated_sensitivity"="mnar_cal",
+    "att_fixed_nuisance_extreme_mean_bounds"="mnar_ext",
+    "balance_treatment_loveplot_data"="bal_a", "balance_factor_levels_treatment"="bal_lev",
+    "missing_outcome_audit"="miss", "earnings_tail_cap_audit"="tail",
+    "earnings_construction_audit"="earn_build", "outcome_construction_audit"="y_build",
+    "wave2_completion_model"="w2_comp", "mortality_composite_zero_at_death_audit"="mort_zero"
+  )
+  if (stem %in% names(repl)) stem <- unname(repl[stem])
+  stem <- gsub("variable_selection", "sel", stem, fixed = TRUE)
+  stem <- gsub("sensitivity", "sens", stem, fixed = TRUE)
+  stem <- gsub("diagnostic", "diag", stem, fixed = TRUE)
+  stem <- gsub("mortality", "mort", stem, fixed = TRUE)
+  stem <- gsub("treatment", "trt", stem, fixed = TRUE)
+  stem <- gsub("missingness", "miss", stem, fixed = TRUE)
+  stem <- gsub("inference", "inf", stem, fixed = TRUE)
+  stem <- gsub("balance", "bal", stem, fixed = TRUE)
+  stem <- gsub("calibrated", "cal", stem, fixed = TRUE)
+  stem <- gsub("construction", "build", stem, fixed = TRUE)
+  stem <- gsub("completion", "comp", stem, fixed = TRUE)
+  stem <- gsub("_+", "_", stem)
+  maxn <- as.integer(cfg$global$max_output_stem_chars %||% 30L)
+  if (!is.finite(maxn) || maxn < 16L) maxn <- 30L
+  if (nchar(stem) > maxn) {
+    hx <- short_name_hash(stem)
+    keep <- max(6L, maxn - 10L)
+    stem <- paste0(substr(stem, 1L, keep), "_", hx)
+  }
+  paste0(stem, ext)
+}
+
 build_run_tag <- function(cfg) {
   parts <- character(0)
-  if (!is.null(cfg$outcome$family))        parts <- c(parts, cfg$outcome$family)
-  if (!is.null(cfg$outcome$current_wave))  parts <- c(parts, sprintf("wave%d", cfg$outcome$current_wave))
+  fam <- cfg$outcome$family %||% NULL
+  if (!is.null(fam)) {
+    fmap <- cfg$global$family_tag_map %||% character(0)
+    ftag <- if (fam %in% names(fmap)) unname(fmap[fam]) else fam
+    parts <- c(parts, ftag)
+  }
+  if (!is.null(cfg$outcome$current_wave)) parts <- c(parts, sprintf("w%d", cfg$outcome$current_wave))
   if (!is.null(cfg$outcome$family_member)) parts <- c(parts, cfg$outcome$family_member)
-  if (!is.null(cfg$global$run_label) && nzchar(cfg$global$run_label))
-    parts <- c(parts, cfg$global$run_label)
-  if (length(parts) == 0L) parts <- "run"
-  tag <- paste(parts, collapse = "__")
-  tag <- gsub("[^A-Za-z0-9._=-]+", "_", tag)
-  tag
+  if (!is.null(cfg$global$run_label) && nzchar(cfg$global$run_label)) parts <- c(parts, cfg$global$run_label)
+  if (!length(parts)) parts <- "run"
+  tag <- paste(parts, collapse = "_")
+  gsub("[^A-Za-z0-9._=-]+", "_", tag)
 }
 
 ensure_run_id <- function(cfg) {
@@ -242,6 +294,7 @@ runtime_provenance <- function() {
 }
 
 build_unique_diag_path <- function(cfg, out_dir, base_filename) {
+  base_filename <- compact_output_basename(base_filename, cfg)
   # Same naming scheme as build_unique_path but rooted under a custom
   # subdirectory (e.g., the diagnostics folder).
   ext_match <- regexpr("\\.[A-Za-z0-9]+$", base_filename)
@@ -260,6 +313,7 @@ build_unique_diag_path <- function(cfg, out_dir, base_filename) {
 }
 
 build_unique_path <- function(cfg, base_filename) {
+  base_filename <- compact_output_basename(base_filename, cfg)
   ext_match <- regexpr("\\.[A-Za-z0-9]+$", base_filename)
   if (ext_match > 0L) {
     stem <- substr(base_filename, 1L, ext_match - 1L)
@@ -277,35 +331,50 @@ build_unique_path <- function(cfg, base_filename) {
 }
 
 configured_outcome_definition <- function(cfg) {
-  mort <- cfg$mortality_sensitivity %||% list()
+  wave <- cfg$outcome$current_wave %||% cfg$outcome$waves
+  mort <- if (length(wave) == 1L && is.numeric(wave)) resolve_mortality_spec(cfg, wave) else list(enabled = FALSE)
   mortality_txt <- if (isTRUE(mort$enabled) && isTRUE(mort$composite_zero_at_death)) {
-    sprintf(
-      paste0("mortality-inclusive past-year earnings composite; deaths %d-%d assigned observed zero; ",
-             "death classification uses %s independently of Wave-IV interview participation; ",
-             "%s is audit-only"),
-      as.integer(mort$death_year_start), as.integer(mort$death_year_end),
-      mort$source_var %||% "NDIDD19Y", mort$interview_year_var %||% "IYEAR4")
-  } else {
-    "ordinary configured outcome"
+    paste0("mortality-inclusive outcome; ", mortality_timing_rule_text(mort),
+           " assigned observed zero when classified pre-outcome")
+  } else "ordinary configured outcome"
+  fam <- cfg$outcome$family %||% "unknown"
+  fam_cfg <- cfg$outcome$families[[fam]] %||% list()
+  def <- if (!is.null(fam_cfg$definition_by_wave) && length(wave) == 1L)
+    unname(fam_cfg$definition_by_wave[as.character(wave)]) else NA_character_
+  if (fam %in% c("HoursWorked", "UsualHours"))
+    def <- sprintf("unconditional current weekly hours capped at %g", fam_cfg$cap_hours %||% 120)
+  if (identical(fam, "Compensation")) {
+    cap_q <- cfg$outcome$continuous_upper_quantile %||% NA_real_
+    cap_txt <- if (is.finite(cap_q) && cap_q < 1) sprintf("weighted upper cap q=%.4f", cap_q) else "no quantile cap"
+    return(paste(mortality_txt, "nominal past-year personal earnings", cap_txt, sep = "; "))
   }
-  cap_q <- cfg$outcome$continuous_upper_quantile %||% NA_real_
-  cap_txt <- if (is.finite(cap_q) && cap_q < 1)
-    sprintf("weighted upper cap q=%.4f", cap_q) else "no quantile cap"
-  price_txt <- if (identical(cfg$outcome$family, "Compensation"))
-    (mort$earnings_price_basis %||% "nominal_past_year_dollars_no_inflation_adjustment") else
-    "configured outcome units"
-  paste(mortality_txt, cap_txt, price_txt, sep = "; ")
+  if (identical(fam, "EducationalAttainment")) {
+    member <- cfg$outcome$family_member %||% "all three primary nested thresholds"
+    timing <- if (length(wave) == 1L && identical(as.integer(wave), 3L))
+      "attainment-to-date" else "attainment"
+    return(paste(mortality_txt, timing, member, sep = "; "))
+  }
+  if (identical(fam, "HealthStatus"))
+    return(paste(mortality_txt, "at least good self-rated health", sep = "; "))
+  paste(na.omit(c(mortality_txt, if (is.character(def) && nzchar(def)) def else fam)), collapse = "; ")
 }
 
+
+# Report whether the selected family and scale support ratio translations.
+# Translation also requires a positive targeted component-mean denominator.
 
 compensation_ratio_translation_enabled <- function(cfg) {
   family <- cfg$outcome$family %||% NA_character_
   fam_cfg <- if (!is.null(family) && family %in% names(cfg$outcome$families))
     cfg$outcome$families[[family]] else list()
-  identical(family, "Compensation") &&
-    identical(tolower(cfg$outcome$compensation_transform %||% "identity"),
-              "identity") &&
-    isTRUE(fam_cfg$report_ratio_translations %||% FALSE)
+  if (!family %in% names(cfg$outcome$families) ||
+      !length(supported_outcome_waves(family)) ||
+      !isTRUE(fam_cfg$report_ratio_translations %||% FALSE)) return(FALSE)
+  if (identical(family, "Compensation"))
+    return(identical(tolower(cfg$outcome$compensation_transform %||% "identity"),
+                     "identity"))
+  family %in% c("EducationalAttainment", "HealthStatus",
+                "LaborForceParticipation", "HoursWorked")
 }
 
 configured_outcome_scale <- function(cfg, outcome_type = NULL) {
@@ -415,7 +484,7 @@ get_frozen_config_hash <- function(cfg, which = c("resolved", "analysis")) {
     p$resolved_run_config_md5 %||% NA_character_
 }
 
-# v6: wrapper around write.csv that uses build_unique_path and writes a
+# Write a CSV using build_unique_path and prepend a
 # metadata header describing the run configuration. This makes every CSV
 # self-identifying when emailed or stored outside the run folder.
 provenance_metadata_lines <- function(cfg, path, base_filename) {
@@ -1278,10 +1347,10 @@ sanitize_column_names <- function(df) {
   list(data = df, old_to_new = old_to_new)
 }
 
-# v5.1: Convert all factor columns to dummy (indicator) variables so that
+# Convert all factor columns to dummy indicators so that
 # every learner in the SuperLearner library receives pure numeric input.
 # Without this, as.matrix on a mixed data.frame coerces the entire matrix
-# to character, which crashes xgboost and inflates memory by ~10x.
+# to character, which crashes xgboost and substantially increases memory use.
 # Factors are expanded one column at a time rather than via a single
 # model.matrix(~ ., data) call, because the latter overflows R's protect
 # stack when the data.frame has hundreds of factor columns.
@@ -1304,7 +1373,7 @@ expand_factors_to_numeric <- function(df) {
     dummy_parts[[fn]] <- mm
   }
   if (length(dummy_parts) == 0L) return(num_part)
-  # v6: ensure data.frame return type. cbind(data.frame, matrix) can return
+  # Return a data.frame because cbind(data.frame, matrix) can return
   # a matrix under R's method dispatch, which crashes earth's formula path.
   out <- cbind(num_part, do.call(cbind, dummy_parts))
   if (!is.data.frame(out)) out <- as.data.frame(out, stringsAsFactors = FALSE)
@@ -1454,8 +1523,8 @@ plot_knee_curve <- function(knee_obj, label_y = "Score") {
        pos = 4, xpd = NA)
 }
 
-# v5.1: Harmonize cutoff_rule and the legacy use_knee_cutoff toggle.
-# Precedence: explicit cutoff_rule wins; otherwise fall back to legacy toggle.
+# Resolve the screening cutoff rule from the explicit rule or use_knee_cutoff.
+# An explicit cutoff_rule takes precedence over use_knee_cutoff.
 resolve_cutoff_rule <- function(rp_cfg) {
   if (!is.null(rp_cfg$cutoff_rule)) return(rp_cfg$cutoff_rule)
   if (isTRUE(rp_cfg$use_knee_cutoff))  return("knee")
@@ -1467,7 +1536,7 @@ resolve_cutoff_rule <- function(rp_cfg) {
   "knee"
 }
 
-# v5.1: Unified cutoff application for the rough prescreen.
+# Apply the configured cutoff rule to rough-prescreen scores.
 # "positive" keeps variables that beat the null model (score > min_score).
 # "knee" uses the geometric knee on the sorted-score curve.
 # "topk" keeps the top max_keep variables by score.

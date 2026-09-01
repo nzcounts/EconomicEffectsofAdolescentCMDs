@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 5232-5452.
-# Module role: Cluster-aware folds.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 4) CLUSTER-AWARE FOLD CONSTRUCTION
 # =============================================================================
 # Plain-English role: build cross-validation folds at the CLUSTER level (not
