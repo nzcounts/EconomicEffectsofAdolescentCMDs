@@ -1,0 +1,7 @@
+target_att,direction,delta1_outcome_units,delta0_outcome_units,delta_abs_sd,attainable_within_support,adjusted_att,interpretation
+0,treated_only,13.0245073153871,0,0.623748262077495,TRUE,-4.44089209850063e-16,bounded_fixed_nuisance_point_threshold_not_confidence_threshold
+0,control_only,0,-12.9233017874149,0.618901493546706,TRUE,1.82076576038526e-14,bounded_fixed_nuisance_point_threshold_not_confidence_threshold
+0,opposing,6.48679037558307,-6.48679037558307,0.310654685452163,TRUE,0,bounded_fixed_nuisance_point_threshold_not_confidence_threshold
+-1.02037364424266,treated_only,6.51225365769353,0,0.311874131038748,TRUE,-1.02037364424266,bounded_fixed_nuisance_point_threshold_not_confidence_threshold
+-1.02037364424266,control_only,0,-6.461525443674,0.309444738926879,TRUE,-1.02037364424266,bounded_fixed_nuisance_point_threshold_not_confidence_threshold
+-1.02037364424266,opposing,3.24339518779154,-3.24339518779154,0.155327342726081,TRUE,-1.02037364424266,bounded_fixed_nuisance_point_threshold_not_confidence_threshold

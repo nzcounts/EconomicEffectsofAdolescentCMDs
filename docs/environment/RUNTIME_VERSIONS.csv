@@ -1,0 +1,14 @@
+package,code_required_version,recorded_run_version,status
+Matrix,1.7.4,1.7.4,matches
+SuperLearner,2.0.29,2.0.29,matches
+dplyr,1.1.4,1.2.1,differs
+e1071,,1.7.14,recorded_optional
+earth,,5.3.3,recorded_optional
+glmnet,4.1.8,4.1.8,matches
+haven,2.5.4,2.5.4,matches
+mgcv,,1.9.1,recorded_optional
+nnet,,7.3.19,recorded_optional
+purrr,1.0.2,,not_recorded
+ranger,0.16.0,0.16.0,matches
+survey,4.4.2,4.4.2,matches
+xgboost,1.7.8.1,1.7.8.1,matches

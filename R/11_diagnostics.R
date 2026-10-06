@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 10370-13032.
-# Module role: Peer-review diagnostics.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 9) PEER-REVIEW DIAGNOSTICS
 # =============================================================================
 # Plain-English role: produce the standard set of figures and tables a
@@ -42,7 +37,7 @@ build_output_inventory <- function(cfg) {
     dims <- c(NA_integer_, NA_integer_)
     if (ext == "csv") {
       z <- tryCatch(utils::read.csv(path, stringsAsFactors = FALSE,
-        check.names = FALSE, comment.char = "#"), error = function(e) NULL)
+                                    check.names = FALSE, comment.char = "#"), error = function(e) NULL)
       if (!is.null(z)) dims <- c(nrow(z), ncol(z))
     }
     data.frame(
@@ -86,6 +81,8 @@ validate_output_bundle <- function(cfg, inventory = NULL) {
 }
 
 build_diagnostic_fit_bundle <- function(cfg, main_df, tmle_fit) {
+  cfg <- adopt_fit_g_bound(cfg,tmle_fit)
+
   if (is.null(tmle_fit) || is.null(tmle_fit$att_components))
     stop("Diagnostic bundle requires a completed ATT fit.", call. = FALSE)
   ac <- tmle_fit$att_components
@@ -137,6 +134,35 @@ build_diagnostic_fit_bundle <- function(cfg, main_df, tmle_fit) {
     att_influence_function = ac$D_att,
     att_mu1_influence_function = ac$D_mu1,
     att_mu0_influence_function = ac$D_mu0,
+    schema="addhealth_diagnostic_bundle_v2",
+    complete_fit=tmle_fit, resolved_cfg=cfg,
+    diagnostic_W_by_fold=tmle_fit$diagnostic_W_by_fold,
+    # --- retargeting inputs -----------------------------------------
+    # The fields above are the TARGETED surfaces. Re-running the targeting
+    # step offline additionally requires the INITIAL (untargeted) surfaces,
+    # the raw arm-specific pi, and the fluctuation coefficients. With these,
+    # any bound, calibration or pi variant can be re-estimated from the saved
+    # bundle alone, without repeating the fit.
+    Q1_initial_bounded = tmle_fit$Qbar1W,
+    Q0_initial_bounded = tmle_fit$Qbar0W,
+    Q_A_initial_bounded = tmle_fit$QbarAW,
+    Q0_initial_orig = ac$Qbar0W_initial_orig,
+    y_lower = tmle_fit$y_lower, y_upper = tmle_fit$y_upper,
+    y_range = tmle_fit$y_range,
+    g_uncalibrated = ac$gn_uncalibrated,
+    pi_A_uncalibrated = ac$pi_AW_uncalibrated,
+    pi_1_raw = tmle_fit$pi_1W_raw, pi_0_raw = tmle_fit$pi_0W_raw,
+    pi_AW_alt_raw = tmle_fit$pi_AW_alt_raw,
+    pi_1_alt_raw = tmle_fit$pi_1W_alt_raw,
+    pi_0_alt_raw = tmle_fit$pi_0W_alt_raw,
+    pi_alt_status = tmle_fit$pi_alt_status,
+    structural_zero = tmle_fit$structural_zero,
+    structural_zero_source = tmle_fit$structural_zero_source,
+    epsilon_mu1 = ac$eps_mu1, epsilon_mu0 = ac$eps_mu0,
+    epsilon_att = ac$eps_att,
+    g_lower_used = cfg$final_tmle$g_lower, g_upper_used = cfg$final_tmle$g_upper,
+    pi_lower_used = cfg$final_tmle$pi_lower, pi_upper_used = cfg$final_tmle$pi_upper,
+    g_calibration_audit = ac$g_calibration_audit,
     run_manifest = tmle_fit$run_manifest,
     superlearner_log = tmle_fit$sl_log,
     selection_log = tmle_fit$selection_log,
@@ -191,7 +217,7 @@ weighted_auc_tie_corrected <- function(y, score, w) {
   neg_total <- sum(w[y == 0L])
   den <- pos_total * neg_total
   if (!is.finite(den) || den <= 0) return(NA_real_)
-
+  
   ord <- order(score, na.last = NA)
   y <- y[ord]; score <- score[ord]; w <- w[ord]
   runs <- rle(score)
@@ -236,13 +262,13 @@ balance_factor_levels <- function(x, group, w_pre, w_post, variable, comparison)
   if (!all(group %in% c(0L, 1L)))
     stop("Balance group must be coded 0/1.", call. = FALSE)
   if (is.numeric(x) || is.integer(x)) return(data.frame())
-
+  
   x_chr <- as.character(x)
   x_chr[is.na(x_chr)] <- "Missing"
   ff <- factor(x_chr)
   levs <- levels(ff)
   if (length(levs) < 2L) return(data.frame())
-
+  
   one_set <- function(w, stage) {
     rows <- lapply(levs, function(lev) {
       z <- as.integer(ff == lev)
@@ -320,7 +346,7 @@ balance_one_variable <- function(x, group, w_pre, w_post, variable) {
       sparse_observed_support = sparse,
       stringsAsFactors = FALSE))
   }
-
+  
   level_rows <- balance_factor_levels(x, group, w_pre, w_post, variable, "")
   if (!nrow(level_rows)) return(NULL)
   pre <- level_rows[level_rows$stage == "pre", , drop = FALSE]
@@ -363,13 +389,13 @@ make_balance_table <- function(df, cfg, group, post_weights, label,
   w_post[!is.finite(w_post) | w_post <= 0] <- NA_real_
   if (length(group) != nrow(df) || length(w_post) != nrow(df))
     stop("Balance inputs have inconsistent row counts.", call. = FALSE)
-
+  
   scan_started <- proc.time()[3]
   progress_every <- as.integer(cfg$diagnostics$balance_progress_every %||% 500L)
   if (!is.finite(progress_every) || progress_every < 1L) progress_every <- 500L
   msg(sprintf("  [diag] %s: scanning balance for %d eligible candidates...",
               label, length(cand_all)), cfg = cfg)
-
+  
   # Cache each candidate's summary for this exact (group, pre-weight,
   # post-weight) comparison. The detailed table reuses these summaries rather
   # than recalculating the same balance statistic after ranking candidates.
@@ -409,7 +435,7 @@ make_balance_table <- function(df, cfg, group, post_weights, label,
   ranking_score <- all_scan$max_abs_smd
   ranking_score[!is.finite(ranking_score)] <- -Inf
   scan_seconds <- proc.time()[3] - scan_started
-
+  
   remaining <- setdiff(cand_all, priority_vars)
   max_bal <- as.integer(cfg$diagnostics$max_balance_variables %||% length(cand_all))
   n_fill <- max(0L, max_bal - length(priority_vars))
@@ -426,7 +452,7 @@ make_balance_table <- function(df, cfg, group, post_weights, label,
       label, length(priority_vars), length(cand) - length(priority_vars),
       length(cand), length(cand_all)))
   }
-
+  
   rows <- list(); level_rows <- list()
   for (v in cand) {
     ans <- all_scan_details[[v]]
@@ -440,7 +466,7 @@ make_balance_table <- function(df, cfg, group, post_weights, label,
           v, label, conditionMessage(e)), call. = FALSE))
     }
     if (!is.null(ans)) rows[[v]] <- ans
-
+    
     # Factor-level output is intentionally computed only for the detailed
     # subset. Numeric/factor summary rows above are reused from the all-scan.
     rule <- get_missing_rule(df[[v]], cfg$preprocessing, variable_name = v)
@@ -523,6 +549,18 @@ make_balance_table_for_vars <- function(df, cfg, vars, group, weights, label) {
 }
 
 build_wave2_completion_diagnostic <- function(df_with_wave2, complete_cesd, cfg) {
+  if (length(complete_cesd) != nrow(df_with_wave2) ||
+      anyNA(complete_cesd) || any(!complete_cesd %in% c(0L, 1L)))
+    stop("Wave-II completion indicator is invalid.", call. = FALSE)
+  df_with_wave2$MHSum_W1 <- score_wave1_cesd(df_with_wave2)
+  cfg$preprocessing$global_missing_dictionary[["MHSum_W1"]] <-
+    make_native_only_missing_rule(df_with_wave2$MHSum_W1,"MHSum_W1")
+  if (isTRUE(cfg$analysis$restrict_wave1_depressed)) {
+    keep <- is.finite(df_with_wave2$MHSum_W1) &
+      df_with_wave2$MHSum_W1 >= (cfg$analysis$wave1_depression_cutpoint %||% 22)
+    df_with_wave2 <- df_with_wave2[keep,,drop=FALSE]
+    complete_cesd <- complete_cesd[keep]
+  }
   w <- suppressWarnings(as.numeric(df_with_wave2[[cfg$analysis$weight_var]]))
   ok_w <- is.finite(w) & w > 0
   complete_cesd <- as.integer(complete_cesd)
@@ -530,10 +568,14 @@ build_wave2_completion_diagnostic <- function(df_with_wave2, complete_cesd, cfg)
       anyNA(complete_cesd) || any(!complete_cesd %in% c(0L, 1L)))
     stop("Wave-II completion indicator is invalid.", call. = FALSE)
   balance <- make_balance_table_for_vars(
-    df_with_wave2, cfg, get_mandatory_W(cfg), complete_cesd, w,
+    df_with_wave2, cfg, 
+    union(intersect(get_mandatory_W(cfg), names(df_with_wave2)), 
+          intersect(paste0("H1FS", 1:19), names(df_with_wave2))), 
+    complete_cesd, w,
     "Wave II Feelings Scale completers vs noncompleters")
   summary <- data.frame(
     n_total = nrow(df_with_wave2),
+    scope = if (isTRUE(cfg$analysis$restrict_wave1_depressed)) "baseline_screen_positive_before_Wave_II_completion" else "Wave_I_cohort_before_Wave_II_completion",
     n_complete = sum(complete_cesd == 1L),
     n_incomplete = sum(complete_cesd == 0L),
     weighted_completion_rate = if (any(ok_w))
@@ -544,6 +586,9 @@ build_wave2_completion_diagnostic <- function(df_with_wave2, complete_cesd, cfg)
     stringsAsFactors = FALSE)
   list(balance = balance, summary = summary)
 }
+
+# -------------------------------------------------------------------------
+
 
 parse_named_metric_string <- function(s, fold, nuisance, value_name) {
   if (is.na(s) || !nzchar(s)) {
@@ -594,15 +639,17 @@ make_sl_risk_long <- function(sl_log) {
 make_outer_validation_summary <- function(sl_log, tmle_fit) {
   if (is.null(sl_log) || !nrow(sl_log)) return(data.frame())
   metrics <- c("Q_outer_mse", "Q_outer_brier", "g_outer_brier", "g_outer_logloss",
-               "pi_outer_brier", "pi_outer_logloss")
+               "pi_outer_brier", "pi_outer_logloss", "g_uncalibrated_outer_brier",
+               "pi_uncalibrated_outer_brier", "g_uncalibrated_outer_logloss",
+               "pi_uncalibrated_outer_logloss")
   metrics <- intersect(metrics, names(sl_log))
   rows <- lapply(metrics, function(nm) {
     z <- suppressWarnings(as.numeric(sl_log[[nm]])); z <- z[is.finite(z)]
     data.frame(section = "outer_fold_ensemble_loss", nuisance = sub("_outer.*$", "", nm),
-      metric = nm, value = if (length(z)) mean(z) else NA_real_,
-      sd_across_folds = if (length(z) > 1L) stats::sd(z) else NA_real_,
-      min_across_folds = if (length(z)) min(z) else NA_real_,
-      max_across_folds = if (length(z)) max(z) else NA_real_, stringsAsFactors = FALSE)
+               metric = nm, value = if (length(z)) mean(z) else NA_real_,
+               sd_across_folds = if (length(z) > 1L) stats::sd(z) else NA_real_,
+               min_across_folds = if (length(z)) min(z) else NA_real_,
+               max_across_folds = if (length(z)) max(z) else NA_real_, stringsAsFactors = FALSE)
   })
   ac <- tmle_fit$att_components %||% list()
   binary_calibration <- function(y, p, w, label) {
@@ -621,9 +668,31 @@ make_outer_validation_summary <- function(sl_log, tmle_fit) {
     rows[[length(rows)+1L]] <- data.frame(section="overall_calibration", nuisance="g", metric="calibration_slope", value=cal["slope"], sd_across_folds=NA_real_, min_across_folds=NA_real_, max_across_folds=NA_real_)
   }
   if (length(ac$delta_Y) && length(ac$pi_AW_raw)) {
-    cal <- binary_calibration(ac$delta_Y, ac$pi_AW_raw, ac$weights, "pi")
+    ee <- (ac$eligibility %||% rep(1L,length(ac$A)))==1L
+    cal <- binary_calibration(ac$delta_Y[ee], ac$pi_AW_raw[ee], ac$weights[ee], "pi")
     rows[[length(rows)+1L]] <- data.frame(section="overall_calibration", nuisance="pi", metric="calibration_intercept", value=cal["intercept"], sd_across_folds=NA_real_, min_across_folds=NA_real_, max_across_folds=NA_real_)
     rows[[length(rows)+1L]] <- data.frame(section="overall_calibration", nuisance="pi", metric="calibration_slope", value=cal["slope"], sd_across_folds=NA_real_, min_across_folds=NA_real_, max_across_folds=NA_real_)
+  }
+  for (target in c("g", "pi")) {
+    yy <- if (target == "g") ac$A else ac$delta_Y
+    raw <- if (target == "g") ac$gn_uncalibrated else ac$pi_AW_uncalibrated
+    active <- if (target == "g") ac$gn_raw else ac$pi_AW_raw
+    if (length(yy) && length(raw) == length(yy) && length(active) == length(yy)) {
+      ww <- ac$weights
+      if (target=="pi") ww <- ww*(ac$eligibility %||% rep(1L,length(ww)))
+      ww <- ww/sum(ww)
+      for (stage in c("uncalibrated", "active_preclip")) {
+        pred <- if (stage == "uncalibrated") raw else active
+        rows[[length(rows)+1L]] <- data.frame(section="overall_weighted_prediction_loss",
+                                              nuisance=target, metric=paste0(stage,"_brier"), value=sum(ww * (yy-pred)^2),
+                                              sd_across_folds=NA_real_, min_across_folds=NA_real_, max_across_folds=NA_real_)
+        pc <- pmin(pmax(pred,1e-12),1-1e-12)
+        rows[[length(rows)+1L]] <- data.frame(section="overall_weighted_prediction_loss",
+          nuisance=target, metric=paste0(stage,"_logloss"),
+          value=-sum(ww*(yy*log(pc)+(1-yy)*log1p(-pc))),
+          sd_across_folds=NA_real_, min_across_folds=NA_real_, max_across_folds=NA_real_)
+      }
+    }
   }
   out <- do.call(rbind, rows)
   rownames(out) <- NULL
@@ -780,7 +849,7 @@ plot_love <- function(tab, path, title, n_top = 30L) {
 # in at least one final fold, and the leading screened variables that actually
 # matter for the fitted pipeline.
 build_targeted_missing_code_audit <- function(main_df, cfg, tmle_fit = NULL) {
-  protected <- cfg$final_tmle$protected_W %||% character(0)
+  protected <- resolve_protected_W(cfg)
   selected <- if (!is.null(tmle_fit) && !is.null(tmle_fit$selected_by_fold))
     unique(unlist(tmle_fit$selected_by_fold, use.names = FALSE)) else character(0)
   leading <- character(0)
@@ -869,7 +938,7 @@ build_earnings_tail_cap_audit <- function(main_df, cfg, tmle_fit, A, w) {
     out[[length(out)+1L]] <- add("cap_by_arm", "n_observed", paste0("A=",a), sum(ii))
     out[[length(out)+1L]] <- add("cap_by_arm", "n_capped", paste0("A=",a), sum(capped & A == a))
     out[[length(out)+1L]] <- add("cap_by_arm", "survey_weight_fraction_capped", paste0("A=",a),
-      sum(ww[capped & A == a], na.rm=TRUE) / sum(ww[ii], na.rm=TRUE))
+                                 sum(ww[capped & A == a], na.rm=TRUE) / sum(ww[ii], na.rm=TRUE))
     raw_total <- sum(ww[ii] * y[ii], na.rm = TRUE)
     ord <- which(ii)[order(y[ii], decreasing = TRUE)]
     for (spec in list(c("top_1_percent", max(1L, ceiling(.01*length(ord)))),
@@ -877,7 +946,7 @@ build_earnings_tail_cap_audit <- function(main_df, cfg, tmle_fit, A, w) {
                       c("top_11", min(11L, length(ord))))) {
       k <- as.integer(spec[[2]]); jj <- utils::head(ord, k)
       out[[length(out)+1L]] <- add("tail_contribution", "fraction_of_weighted_raw_earnings", paste0("A=",a,"_",spec[[1]]),
-        if (is.finite(raw_total) && raw_total != 0) sum(ww[jj]*y[jj], na.rm=TRUE)/raw_total else NA_real_)
+                                   if (is.finite(raw_total) && raw_total != 0) sum(ww[jj]*y[jj], na.rm=TRUE)/raw_total else NA_real_)
     }
   }
   for (ss in sort(unique(src))) {
@@ -894,7 +963,11 @@ build_earnings_tail_cap_audit <- function(main_df, cfg, tmle_fit, A, w) {
 # Dedicated survey-weighted ATT balance table for the 19 fixed Wave I
 # Feelings Scale items. It is intentionally not limited by max_balance_variables.
 build_protected_h1fs_balance <- function(main_df, cfg, A, survey_w, att_post_w) {
-  vars <- cfg$final_tmle$protected_W %||% character(0)
+  # Diagnostic variable set is deliberately independent of protected_W so this
+  # table stays comparable across protected_W_mode settings.
+  required_vars <- c(paste0("H1FS", 1:19), "MHSum_W1")
+  assert_required_columns(main_df, required_vars, "baseline-depression balance audit")
+  vars <- intersect(unique(c(required_vars, as.character(cfg$analysis$h1fs_balance_vars))), names(main_df))
   vars <- vars[vars %in% names(main_df)]
   rows <- lapply(vars, function(v) tryCatch({
     # Use the same frozen complete-Wave-I semantic rule as screening and final
@@ -918,7 +991,7 @@ build_protected_h1fs_balance <- function(main_df, cfg, A, survey_w, att_post_w) 
   rows <- rows[!vapply(rows, is.null, logical(1))]
   if (!length(rows)) return(data.frame())
   out <- do.call(rbind, rows)
-  out$comparison <- "A=1_vs_A=0_ATT_protected_H1FS"
+  out$comparison <- "A=1_vs_A=0_ATT_all_baseline_items_and_total"
   out$abs_smd_pre <- abs(out$smd_pre); out$abs_smd_post <- abs(out$smd_post)
   out$abs_missing_smd_post <- abs(out$missing_smd_post)
   out$exceeds_0_10 <- (is.finite(out$abs_smd_post) & out$abs_smd_post > 0.10) |
@@ -948,7 +1021,7 @@ estimate_joint_att_under_clips <- function(tmle_fit, cfg, g_lower, g_upper,
   p_treat_w <- den_att / length(weights)
   if (!is.finite(den_att) || den_att <= 0 || !is.finite(p_treat_w) || p_treat_w <= 0)
     stop("Clip sensitivity ATT denominator is invalid.", call. = FALSE)
-
+  
   clip <- function(p, lo, hi) pmin(pmax(as.numeric(p), lo), hi)
   g <- clip(tmle_fit$gn_raw, g_lower, g_upper)
   pi_AW <- clip(tmle_fit$pi_AW_raw, pi_lower, pi_upper)
@@ -956,50 +1029,18 @@ estimate_joint_att_under_clips <- function(tmle_fit, cfg, g_lower, g_upper,
   pi_0W <- clip(tmle_fit$pi_0W_raw, pi_lower, pi_upper)
   if (any(!is.finite(c(g, pi_AW, pi_1W, pi_0W))))
     stop("Clip sensitivity encountered non-finite held-out nuisance predictions.", call. = FALSE)
-
-  Q1 <- as.numeric(tmle_fit$Qbar1W)
-  Q0 <- as.numeric(tmle_fit$Qbar0W)
-  QAW <- as.numeric(tmle_fit$QbarAW)
-  obs <- which(delta == 1L)
-  Y_star <- rep(NA_real_, length(Y_bounded))
-  Y_star[obs] <- (Y_bounded[obs] - tmle_fit$y_lower) / tmle_fit$y_range
-
-  t1 <- solve_target_score(
-    offset = stats::qlogis(QAW[obs]), H = A[obs] / pi_AW[obs],
-    Y = Y_star[obs], w = weights[obs],
-    score_tol = cfg$final_tmle$target_score_tol %||% 1e-10,
-    max_expand = cfg$final_tmle$target_root_max_expand %||% 60L,
-    label = paste0("ATT clip sweep mu1: ", label))
-  t0 <- solve_target_score(
-    offset = stats::qlogis(QAW[obs]),
-    H = (1 - A[obs]) * (g[obs] / (1 - g[obs])) / pi_AW[obs],
-    Y = Y_star[obs], w = weights[obs],
-    score_tol = cfg$final_tmle$target_score_tol %||% 1e-10,
-    max_expand = cfg$final_tmle$target_root_max_expand %||% 60L,
-    label = paste0("ATT clip sweep mu0: ", label))
-
-  Q1s <- stats::plogis(stats::qlogis(Q1) + t1$epsilon / pi_1W)
-  Q0s <- stats::plogis(stats::qlogis(Q0) + t0$epsilon * (g / (1 - g)) / pi_0W)
-  Q1o <- Q1s * tmle_fit$y_range + tmle_fit$y_lower
-  Q0o <- Q0s * tmle_fit$y_range + tmle_fit$y_lower
-  QAo <- ifelse(A == 1L, Q1o, Q0o)
-  mu1 <- sum(w_norm * A * Q1o) / den_att
-  mu0 <- sum(w_norm * A * Q0o) / den_att
-  att <- mu1 - mu0
-  D1 <- (1 / p_treat_w) *
-    (A * (Q1o - mu1) + A * delta / pi_AW *
-       ifelse(delta == 1L, Y_bounded - Q1o, 0))
-  D0 <- (1 / p_treat_w) *
-    (A * (Q0o - mu0) + (1 - A) * (g / (1 - g)) * delta / pi_AW *
-       ifelse(delta == 1L, Y_bounded - Q0o, 0))
-  D <- D1 - D0
+  
+  target <- retarget_stored_composite(tmle_fit,cfg,g_lower,g_upper,pi_lower,pi_upper)
+  mu1 <- target$mu1; mu0 <- target$mu0; att <- target$estimate
+  D1 <- target$D1; D0 <- target$D0; D <- target$D
+  t1 <- list(normalized_score=target$score1); t0 <- list(normalized_score=target$score0)
   inf <- cluster_inference_from_eif(
     D, weights, cluster, att, strata = strata,
     design_frame = tmle_fit$survey_design_frame,
     domain_ids = tmle_fit$respondent_ids,
     id_var = cfg$analysis$id_var, cluster_var = cfg$analysis$cluster_var,
     strata_var = cfg$analysis$strata_var, weight_var = cfg$analysis$weight_var)
-
+  
   report_ratio <- compensation_ratio_translation_enabled(cfg)
   pct_prev <- pct_prev_se <- pct_prev_lo <- pct_prev_hi <- pct_prev_p <- NA_real_
   if (report_ratio) {
@@ -1016,11 +1057,14 @@ estimate_joint_att_under_clips <- function(tmle_fit, cfg, g_lower, g_upper,
     pct_prev_se <- inf_pct$se; pct_prev_lo <- inf_pct$ci[1L]
     pct_prev_hi <- inf_pct$ci[2L]; pct_prev_p <- inf_pct$p
   }
-
+  
   controls <- A == 0L
   ctrl_odds <- g[controls] / (1 - g[controls])
   ctrl_survey_odds <- weights[controls] * ctrl_odds
-  ctrl_ipcw <- ctrl_survey_odds / pi_0W[controls]
+  # Actual residual weights: only observed controls contribute.
+  observed_controls <- controls & delta == 1L & (tmle_fit$eligibility %||% rep(1L,length(A))) == 1L
+  ctrl_ipcw <- weights[observed_controls] *
+    (g[observed_controls] / (1 - g[observed_controls])) / pi_AW[observed_controls]
   data.frame(
     scenario = label,
     compensation_transform = if (identical(cfg$outcome$family, "Compensation"))
@@ -1047,6 +1091,8 @@ estimate_joint_att_under_clips <- function(tmle_fit, cfg, g_lower, g_upper,
     att_control_odds_p99 = if (length(ctrl_odds)) as.numeric(stats::quantile(ctrl_odds, 0.99, names = FALSE, type = 8)) else NA_real_,
     att_control_odds_max = if (length(ctrl_odds)) max(ctrl_odds) else NA_real_,
     att_control_survey_weight_ess = kish_eff_n(ctrl_survey_odds),
+    att_control_ipcw_n_observed = sum(observed_controls),
+    att_residual_weight_scope = "eligible_observed_outcome_residual_only;eligibility_residual_uses_all_rows",
     att_control_ipcw_weight_ess = kish_eff_n(ctrl_ipcw),
     att_control_ipcw_weight_p99 = if (length(ctrl_ipcw)) as.numeric(stats::quantile(ctrl_ipcw, 0.99, names = FALSE, type = 8)) else NA_real_,
     att_control_ipcw_weight_max = if (length(ctrl_ipcw)) max(ctrl_ipcw) else NA_real_,
@@ -1054,7 +1100,7 @@ estimate_joint_att_under_clips <- function(tmle_fit, cfg, g_lower, g_upper,
 }
 
 build_att_mnar_pattern_mixture <- function(tmle_fit, cfg) {
-  ac <- tmle_fit$att_components
+  ac <- mnar_composite_components(tmle_fit$att_components)
   if (is.null(ac)) return(data.frame())
   needed <- c("A", "weights", "delta_Y", "pi_AW", "pi_1W", "pi_0W",
               "Y_bounded_orig", "Qbar1W_orig", "Qbar0W_orig", "cluster",
@@ -1067,7 +1113,7 @@ build_att_mnar_pattern_mixture <- function(tmle_fit, cfg) {
   if (!is.finite(den_att) || den_att <= 0)
     stop("MNAR sensitivity has no positive treated mass.", call. = FALSE)
   obs <- ac$delta_Y == 1L & is.finite(ac$Y_bounded_orig)
-  ipcw_w <- w[obs] / ac$pi_AW[obs]
+  ipcw_w <- composite_observed_weights(ac)[obs]
   outcome_sd <- sqrt(weighted_var_safe(ac$Y_bounded_orig[obs], ipcw_w))
   if (!is.finite(outcome_sd) || outcome_sd <= 0)
     stop("MNAR sensitivity could not estimate a positive canonical-outcome SD.", call. = FALSE)
@@ -1112,20 +1158,14 @@ build_att_mnar_pattern_mixture <- function(tmle_fit, cfg) {
   do.call(rbind, out)
 }
 
-# ---------------------------------------------------------------------------
-# MNAR sensitivity extensions (v8.28): shared fixed-nuisance machinery.
-# ---------------------------------------------------------------------------
-# Extracts the pieces of the TARGETED ATT fit needed to re-evaluate the point
-# estimate under alternative assumptions about the conditional mean of the
-# outcome among non-responders.  Nothing here refits a nuisance model, changes
-# the estimand, or touches the primary ATT: every downstream diagnostic is a
-# deterministic function of quantities already produced by run_final_cv_tmle().
-#
-# All three new diagnostics route through this helper and through
-# mnar_net_shift_from_means() so that they are numerically consistent with
-# att_mnar_pattern_mixture.csv by construction (identical arithmetic; only the
-# choice of the non-responder conditional means differs).
+# Fixed-nuisance MNAR helpers extract targeted ATT components and
+# compute shifts under alternative nonresponder conditional means.
+# The shared net-shift arithmetic keeps the related diagnostics consistent;
+# no nuisance fitting or primary-estimate modification occurs here.
+
+
 mnar_fixed_nuisance_components <- function(ac) {
+  ac <- mnar_composite_components(ac)
   needed <- c("A", "weights", "delta_Y", "pi_AW", "pi_1W", "pi_0W",
               "Y_bounded_orig", "Qbar1W_orig", "Qbar0W_orig",
               "psi_att", "att_se", "y_lower", "y_upper", "inference_df")
@@ -1142,7 +1182,7 @@ mnar_fixed_nuisance_components <- function(ac) {
   obs <- ac$delta_Y == 1L & is.finite(ac$Y_bounded_orig)
   if (!any(obs))
     stop("MNAR fixed-nuisance components have no observed outcomes.", call. = FALSE)
-  ipcw_w <- w[obs] / ac$pi_AW[obs]
+  ipcw_w <- composite_observed_weights(ac)[obs]
   outcome_sd <- sqrt(weighted_var_safe(ac$Y_bounded_orig[obs], ipcw_w))
   if (!is.finite(outcome_sd) || outcome_sd <= 0)
     stop("MNAR fixed-nuisance components could not estimate a positive outcome SD.",
@@ -1201,7 +1241,7 @@ build_att_mnar_breakdown <- function(tmle_fit, cfg) {
   grid_n  <- as.integer(cfg$diagnostics$mnar_breakdown_grid_n %||% 601L)
   if (!is.finite(max_sd) || max_sd <= 0) stop("mnar_breakdown_max_sd must be positive.", call. = FALSE)
   if (!is.finite(grid_n) || grid_n < 11L) stop("mnar_breakdown_grid_n must be >= 11.", call. = FALSE)
-
+  
   base_row <- function(nm, u1, u0, s, note) {
     net <- if (is.na(s)) NA_real_ else
       unname(mnar_net_shift_from_deltas(cmp, s * u1 * cmp$outcome_sd,
@@ -1223,12 +1263,12 @@ build_att_mnar_breakdown <- function(tmle_fit, cfg) {
       configured_outcome_cap_held_fixed = TRUE,
       note = note, stringsAsFactors = FALSE)
   }
-
+  
   # If the primary interval already admits the null there is no breakdown point.
   if (ci_lo0 <= 0 && ci_hi0 >= 0)
     return(base_row("not_applicable", NA_real_, NA_real_, NA_real_,
                     "Primary interval already includes the null; breakdown point undefined."))
-
+  
   # margin(s) < 0  <=>  interval still excludes the null at signed shift s.
   margin_at <- if (ci_hi0 < 0) {
     function(s, u1, u0) cmp$psi_att +
@@ -1237,11 +1277,11 @@ build_att_mnar_breakdown <- function(tmle_fit, cfg) {
       cmp$tcrit * cmp$att_se
   } else {
     function(s, u1, u0) -(cmp$psi_att +
-      unname(mnar_net_shift_from_deltas(cmp, s * u1 * cmp$outcome_sd,
-                                        s * u0 * cmp$outcome_sd)["net"]) -
-      cmp$tcrit * cmp$att_se)
+                            unname(mnar_net_shift_from_deltas(cmp, s * u1 * cmp$outcome_sd,
+                                                              s * u0 * cmp$outcome_sd)["net"]) -
+                            cmp$tcrit * cmp$att_se)
   }
-
+  
   scan_direction <- function(u1, u0) {
     grid <- seq(0, max_sd, length.out = grid_n)
     best <- NA_real_
@@ -1259,7 +1299,7 @@ build_att_mnar_breakdown <- function(tmle_fit, cfg) {
     }
     best
   }
-
+  
   dirs <- list(
     list(nm = "treated_arm_only",       u1 = 1,    u0 = 0),
     list(nm = "control_arm_only",       u1 = 0,    u0 = 1),
@@ -1358,8 +1398,8 @@ build_att_mnar_calibrated <- function(tmle_fit, cfg) {
          call. = FALSE)
   cmp <- mnar_fixed_nuisance_components(ac)
   bd <- build_att_mnar_breakdown(tmle_fit, cfg)
-  if (!nrow(bd) || all(is.na(bd$breakdown_delta_sd_abs))) return(data.frame())
-
+  if (!nrow(bd)) stop("Calibrated MNAR sensitivity could not obtain the breakdown diagnostic.", call. = FALSE)
+  
   obs <- cmp$obs
   pv <- cmp$pi_AW[obs]; yv <- cmp$Y_obs[obs]; wv <- cmp$weights[obs]
   cl <- as.character(ac$cluster)[obs]
@@ -1370,12 +1410,12 @@ build_att_mnar_calibrated <- function(tmle_fit, cfg) {
   if (length(pv) < 50L)
     stop("Calibrated MNAR sensitivity has too few observed rows.", call. = FALSE)
   probs <- as.numeric(cfg$diagnostics$mnar_calibration_probs)
-
+  
   psu_map <- unique(data.frame(cluster = cl, stratum = st, stringsAsFactors = FALSE))
   if (anyDuplicated(psu_map$cluster))
     stop("A PSU maps to more than one REGION in the calibrated MNAR sample.",
          call. = FALSE)
-
+  
   measured_gap <- function(p, y, w) {
     qs <- weighted_hf8_quantiles(p, w, probs)
     if (!all(is.finite(qs)) || qs[1L] >= qs[2L]) return(NA_real_)
@@ -1390,7 +1430,7 @@ build_att_mnar_calibrated <- function(tmle_fit, cfg) {
          call. = FALSE)
   M_dollars <- abs(M_signed)
   M_sd <- M_dollars / cmp$outcome_sd
-
+  
   B <- as.integer(cfg$diagnostics$mnar_calibration_boot_reps)
   seed <- as.integer(cfg$diagnostics$mnar_calibration_boot_seed)
   min_valid <- as.integer(cfg$diagnostics$mnar_calibration_min_valid_boot_reps)
@@ -1419,7 +1459,7 @@ build_att_mnar_calibrated <- function(tmle_fit, cfg) {
   M_lo <- unname(stats::quantile(boot_abs, 0.025, type = 8))
   M_hi <- unname(stats::quantile(boot_abs, 0.975, type = 8))
   sign_reversal_fraction <- mean(sign(boot_signed[valid_boot]) != sign(M_signed))
-
+  
   out <- lapply(seq_len(nrow(bd)), function(i) {
     s_abs <- bd$breakdown_delta_sd_abs[i]
     gam <- if (is.na(s_abs)) NA_real_ else s_abs / M_sd
@@ -1459,7 +1499,341 @@ build_att_mnar_calibrated <- function(tmle_fit, cfg) {
 }
 
 
+# ---------------------------------------------------------------------------
+# Prognostic-score balance (Stuart, Lee & Leacy 2013).
+# The ASMD in the prognostic score correlates more strongly with actual bias
+# than covariate-by-covariate SMDs, because it weights each covariate by its
+# relevance to the OUTCOME rather than treating all covariates equally.
+# Qbar0W_initial_orig is the initial, held-out control-outcome surface BEFORE
+# full-sample ATT targeting. No validation outcomes enter its own prediction.
+# Interpretation caveat: a prognostic score built from a weak outcome model is
+# itself weakly informative; report Q's held-out R-squared alongside it.
+# ---------------------------------------------------------------------------
+build_prognostic_score_balance <- function(tmle_fit, cfg) {
+  ac <- tmle_fit$att_components
+  if (is.null(ac) || is.null(ac$Qbar0W_initial_orig)) return(data.frame())
+  A <- as.integer(ac$A); w <- as.numeric(ac$weights)
+  g <- as.numeric(ac$gn); ps <- as.numeric(ac$Qbar0W_initial_orig)
+  # the within-run score is refitted in every specification, so balance
+  # computed from it is NOT comparable across specifications. When a reference
+  # export from the designated run is supplied, compute the same statistics
+  # against that FIXED score as well, and label both.
+  ref_ps <- NULL
+  ref_path <- cfg$diagnostics$prognostic_reference_score_path %||% NULL
+  if (!is.null(ref_path)) {
+    if (length(ref_path)!=1L || !is.character(ref_path) || !nzchar(ref_path) || !file.exists(ref_path))
+      stop("Requested prognostic reference file does not exist.",call.=FALSE)
+    rt <- utils::read.csv(ref_path,stringsAsFactors=FALSE,colClasses="character",comment.char="#")
+    need <- c("respondent_id","prognostic_score","outcome_family","outcome_wave","outcome_scale")
+    assert_required_columns(rt,need,"fixed prognostic reference")
+    ids <- as.character(rt$respondent_id)
+    if (anyNA(ids)||any(!nzchar(ids))||anyDuplicated(ids)) stop("Reference IDs must be complete and unique.",call.=FALSE)
+    ix <- match(as.character(tmle_fit$respondent_ids),ids)
+    if (anyNA(ix)) stop("Reference score does not cover the analytic cohort.",call.=FALSE)
+    ref_ps <- suppressWarnings(as.numeric(rt$prognostic_score[ix]))
+    if (any(!is.finite(ref_ps))) stop("Reference contains invalid scores.",call.=FALSE)
+    if (any(rt$outcome_family[ix]!=cfg$outcome$family) ||
+        any(rt$outcome_wave[ix]!=as.character(cfg$outcome$current_wave %||% cfg$outcome$waves)) ||
+        any(rt$outcome_scale[ix]!=configured_outcome_scale(cfg,tmle_fit$outcome_type)))
+      stop("Reference score outcome or scale does not match this specification.",call.=FALSE)
+  }
+  one_score <- function(score, source_label) {
+    ok <- is.finite(score) & is.finite(w) & w > 0 & is.finite(g)
+    if (sum(ok & A == 1L) < 2L || sum(ok & A == 0L) < 2L) return(NULL)
+    odds <- g / pmax(1 - g, 1e-6)
+    wt_t <- w[ok & A == 1L]
+    wt_c <- (w * odds)[ok & A == 0L]
+    ps_t <- score[ok & A == 1L]; ps_c <- score[ok & A == 0L]
+    wm <- function(x, u) sum(u * x) / sum(u)
+    wv <- function(x, u) { m <- wm(x, u); sum(u * (x - m)^2) / sum(u) }
+    m_t <- wm(ps_t, wt_t); m_c_pre <- wm(ps_c, w[ok & A == 0L])
+    m_c_post <- wm(ps_c, wt_c)
+    pooled_sd <- sqrt((wv(ps_t, wt_t) + wv(ps_c, w[ok & A == 0L])) / 2)
+    if (!is.finite(pooled_sd) || pooled_sd <= 0) return(NULL)
+    data.frame(
+      metric = c("prognostic_smd_pre", "prognostic_smd_post",
+                 "prognostic_mean_treated", "prognostic_mean_control_pre",
+                 "prognostic_mean_control_post", "prognostic_pooled_sd",
+                 "prognostic_gap_outcome_units", "n_treated", "n_control"),
+      value = c((m_t - m_c_pre) / pooled_sd, (m_t - m_c_post) / pooled_sd,
+                m_t, m_c_pre, m_c_post, pooled_sd, m_t - m_c_post,
+                sum(ok & A == 1L), sum(ok & A == 0L)),
+      score_source = source_label,
+      stringsAsFactors = FALSE)
+  }
+  rows <- list(one_score(ps, "this_run_refitted"))
+  if (!is.null(ref_ps)) rows[[length(rows) + 1L]] <- one_score(ref_ps, "fixed_reference")
+  rows <- rows[!vapply(rows, is.null, logical(1))]
+  if (!length(rows)) return(data.frame())
+  do.call(rbind, rows)
+}
+
+# export this run's held-out initial control-outcome surface keyed by
+# respondent id, so a later specification can score balance against a FIXED
+# reference rather than its own refitted surface.
+build_prognostic_score_export <- function(tmle_fit, cfg) {
+  ac <- tmle_fit$att_components
+  if (is.null(ac) || is.null(ac$Qbar0W_initial_orig) ||
+      is.null(tmle_fit$respondent_ids)) return(data.frame())
+  ps <- as.numeric(ac$Qbar0W_initial_orig)
+  ids <- as.character(tmle_fit$respondent_ids)
+  if (length(ps) != length(ids)) return(data.frame())
+  data.frame(
+    respondent_id = ids,
+    prognostic_score = ps,
+    outcome_family=cfg$outcome$family,
+    outcome_wave=as.character(cfg$outcome$current_wave %||% cfg$outcome$waves),
+    outcome_scale=configured_outcome_scale(cfg,tmle_fit$outcome_type),
+    score_definition = "held_out_initial_Qbar0W_original_scale",
+    pipeline_version = cfg$global$version %||% NA_character_,
+    run_id = cfg$global$run_id %||% NA_character_,
+    restricted_use_notice = "Respondent-linked derived values; keep inside the restricted-use environment.",
+    stringsAsFactors = FALSE)
+}
+
+# Fixed additive-bias scenarios posit E[estimate] = ATT_true + b.
+# Subtract b from the point estimate and conditional interval. These scenarios
+# do not estimate confounder strength or uncertainty in b.
+
+
+build_ovb_robustness_values <- function(tmle_fit, cfg, alpha = 0.05) {
+  ac <- tmle_fit$att_components
+  if (is.null(ac)) return(data.frame())
+  est <- ac$psi_att; se <- ac$att_se; dfree <- ac$inference_df
+  if (length(est) != 1L || length(se) != 1L || length(dfree) != 1L ||
+      any(!is.finite(c(est, se, dfree))) || se < 0 || dfree <= 0)
+    stop("Fixed-bias sensitivity requires a finite ATT, SE and design df.", call. = FALSE)
+  crit <- stats::qt(1 - alpha / 2, dfree)
+  obs <- ac$delta_Y == 1L & is.finite(ac$Y_bounded_orig)
+  sd_y <- sqrt(weighted_var_safe(ac$Y_bounded_orig[obs],
+                                 composite_observed_weights(ac)[obs]))
+  grid <- cfg$diagnostics$additive_bias_grid
+  if (is.null(grid)) {
+    if (!is.finite(sd_y) || sd_y <= 0) return(data.frame())
+    grid <- sd_y * c(-0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2)
+  }
+  if (!is.numeric(grid) || !length(grid) || any(!is.finite(grid)))
+    stop("additive_bias_grid must contain finite biases in outcome units.", call. = FALSE)
+  b_ci <- if (abs(est) <= crit * se) 0 else sign(est) * (abs(est) - crit * se)
+  grid <- sort(unique(c(grid, 0, est, b_ci)))
+  data.frame(assumed_estimator_bias = grid,
+             assumed_bias_over_outcome_sd = grid / sd_y,
+             adjusted_att = est - grid,
+             conditional_ci_lower = est - grid - crit * se,
+             conditional_ci_upper = est - grid + crit * se,
+             bias_to_null_point = est, bias_to_ci_touch_null = b_ci,
+             primary_att = est, primary_se = se, inference_df = dfree,
+             outcome_sd_used = sd_y, bias_treated_as_fixed = TRUE,
+             interpretation = "Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration.",
+             stringsAsFactors = FALSE)
+}
+
+# ---------------------------------------------------------------------------
+# Outcome-source audit for the sequential composite. Known zeros do not
+# receive response inverse weights; pi describes eligible-person response.
+# ---------------------------------------------------------------------------
+build_structural_zero_pi_audit <- function(tmle_fit,cfg) {
+  ac <- tmle_fit$att_components
+  if (is.null(ac)||is.null(tmle_fit$eligibility)) return(data.frame())
+  S <- tmle_fit$eligibility; src <- tmle_fit$structural_zero_source
+  if (length(src)!=length(S)) stop("Outcome-source audit is not aligned.",call.=FALSE)
+  groups <- split(seq_along(S),interaction(src,ac$A,drop=TRUE))
+  do.call(rbind,lapply(groups,function(ii) data.frame(
+    outcome_source=src[ii[1L]],A=ac$A[ii[1L]],n=length(ii),
+    survey_weight_sum=sum(ac$weights[ii]),structural_zero=S[ii[1L]]==0L,
+    interview_response_weight_used=S[ii[1L]]==1L,
+    observation_model="pi_is_response_given_A_W_and_eligibility_1",
+    stringsAsFactors=FALSE)))
+}
+
+# Optional conditional simulation diagnostic. It holds screening/recipes, Q,
+# eligibility and response surfaces fixed, but reproduces outer cross-fitting,
+# the full configured g library, g calibration, and survey-domain inference.
+# It is not a certificate of actual-data coverage or of the estimated-cap law.
+run_bootstrap_positivity_diagnostic <- function(tmle_fit,cfg) {
+  if (!isTRUE(cfg$diagnostics$enable_bootstrap_positivity_diagnostic)) return(NULL)
+  ac <- tmle_fit$att_components; designs <- tmle_fit$diagnostic_W_by_fold
+  if (is.null(ac)||!length(designs)||any(vapply(designs,is.null,logical(1))))
+    stop("Bootstrap requires all saved outer-fold predictor designs.",call.=FALSE)
+  if (!identical(tmle_fit$observation_model,"sequential_composite"))
+    stop("Bootstrap requires a sequential-composite completed fit.",call.=FALSE)
+  suppressPackageStartupMessages(library(SuperLearner))
+  register_custom_learners(cfg)
+  lib <- cfg$diagnostics$bootstrap_positivity_g_library %||% build_sl_library(cfg,"g")
+  if (!setequal(lib,build_sl_library(cfg,"g")))
+    stop("Bootstrap g library must match the primary g library.",call.=FALSE)
+  M <- as.integer(cfg$diagnostics$bootstrap_positivity_replicates %||% 200L)
+  budget <- as.numeric(cfg$diagnostics$bootstrap_positivity_max_seconds %||% 5400)
+  phi <- as.numeric(cfg$diagnostics$bootstrap_positivity_beta_precision %||% 12)
+  if (!is.finite(M)||M<1L||!is.finite(budget)||budget<=0||!is.finite(phi)||phi<=0)
+    stop("Invalid bootstrap count, budget or beta precision.",call.=FALSE)
+  n <- length(ac$A); w <- ac$weights
+  q1 <- tmle_fit$Qeligible1W; q0 <- tmle_fit$Qeligible0W
+  s1 <- tmle_fit$S1W; s0 <- tmle_fit$S0W
+  r1 <- ac$pi_1W; r0 <- ac$pi_0W; gdgp <- as.numeric(tmle_fit$gn_raw)
+  if (any(!is.finite(c(q1,q0,s1,s0,r1,r0,gdgp)))||any(gdgp<0|gdgp>1))
+    stop("Invalid fitted bootstrap-generating probabilities.",call.=FALSE)
+  lo <- tmle_fit$y_lower; rg <- tmle_fit$y_range
+  m1 <- s1*(q1*rg+lo); m0 <- s0*(q0*rg+lo)
+  truth <- sum(w*gdgp*(m1-m0))/sum(w*gdgp)
+  if (!is.finite(truth)) stop("Bootstrap population has no treated mass.",call.=FALSE)
+  floors <- cfg$diagnostics$bootstrap_positivity_g_floors %||% c(.005,.025,.05)
+  if (isTRUE(cfg$diagnostics$bootstrap_positivity_include_sample_size_bound)) {
+    no <- sum(ac$delta_Y==1L)
+    floors <- c(floors,(cfg$diagnostics$att_g_clip_sample_size_constant %||% 5)/(sqrt(no)*log(no)))
+  }
+  floors <- sort(unique(c(floors,cfg$final_tmle$g_lower)))
+  if (any(!is.finite(floors)|floors<=0|floors>=cfg$final_tmle$g_upper))
+    stop("Invalid bootstrap propensity floors.",call.=FALSE)
+  frame <- tmle_fit$survey_design_frame
+  iv <- cfg$analysis$id_var; cv <- cfg$analysis$cluster_var
+  sv <- cfg$analysis$strata_var; wv <- cfg$analysis$weight_var
+  assert_required_columns(frame,c(iv,cv,sv,wv,".analysis_domain"),"bootstrap full design")
+  psus <- unique(frame[c(cv,sv)])
+  if (anyDuplicated(psus[[cv]])) stop("A bootstrap PSU maps to multiple strata.",call.=FALSE)
+  ids <- as.character(tmle_fit$respondent_ids)
+  t0 <- proc.time()[3]; rows <- list(); errors <- list(); planned <- M
+  progress <- build_unique_path(cfg,"bootstrap_progress.rds")
+  first_seconds <- NA_real_; stopped <- FALSE
+  seed <- seed_for(cfg,77000L)
+  for (b in seq_len(M)) {
+    elapsed <- proc.time()[3]-t0
+    if (b>planned || elapsed>=budget ||
+        (b>1L && is.finite(first_seconds) && elapsed+first_seconds>budget)) {
+      stopped <- TRUE; break
+    }
+    rb0 <- proc.time()[3]
+    ans <- tryCatch(with_local_seed(seed+b,{
+      # Sample whole PSUs WITHIN each design stratum, retaining outside-domain
+      # design rows and giving duplicate PSU draws distinct replicate IDs.
+      parts <- list(); source_ids <- character(); k <- 0L
+      for (h in unique(as.character(psus[[sv]]))) {
+        uu <- as.character(psus[[cv]][as.character(psus[[sv]])==h])
+        picks <- sample(uu,length(uu),replace=TRUE)
+        for (p in picks) {
+          k <- k+1L; z <- frame[as.character(frame[[cv]])==p,,drop=FALSE]
+          source_ids <- c(source_ids,as.character(z[[iv]]))
+          z[[iv]] <- paste0(as.character(z[[iv]]),"#",k)
+          z[[cv]] <- paste0(p,"#",k);parts[[k]] <- z
+        }
+      }
+      fb <- do.call(rbind,parts); rownames(fb) <- NULL
+      source_ix <- match(source_ids,ids); dom <- which(fb$.analysis_domain)
+      ix <- source_ix[dom]
+      if (anyNA(ix)) stop("Bootstrap domain IDs do not map to the completed fit.")
+      wb <- as.numeric(fb[[wv]][dom]); cb <- as.character(fb[[cv]][dom])
+      hb <- as.character(fb[[sv]][dom]); ib <- as.character(fb[[iv]][dom])
+      Ab <- stats::rbinom(length(ix),1L,gdgp[ix])
+      Sb <- stats::rbinom(length(ix),1L,ifelse(Ab==1L,s1[ix],s0[ix]))
+      Rb <- stats::rbinom(length(ix),1L,ifelse(Ab==1L,r1[ix],r0[ix]))
+      qa <- ifelse(Ab==1L,q1[ix],q0[ix])
+      # Exact conditional mean; no residual addition or post-generation clip.
+      hs <- if (identical(tmle_fit$outcome_type,"binary"))
+        stats::rbinom(length(ix),1L,qa) else {
+          z <- qa; mid <- qa>0 & qa<1
+          z[mid] <- stats::rbeta(sum(mid),qa[mid]*phi,(1-qa[mid])*phi); z
+        }
+      yy <- ifelse(Sb==0L,0,lo+rg*hs)
+      db <- as.integer(Sb==0L|Rb==1L); yy[db==0L] <- NA_real_
+      folds <- tmle_fit$outer_fold[ix]; gr <- rep(NA_real_,length(ix))
+      for (v in sort(unique(folds))) {
+        tr <- which(folds!=v); te <- which(folds==v)
+        if (length(unique(Ab[tr]))<2L) stop("Bootstrap training fold lacks treatment support.")
+        Wb <- designs[[v]]$W[ix,,drop=FALSE]
+        .SL_RUNTIME_ENV$h1fs_processed_columns <- designs[[v]]$protected_columns
+        vr <- build_cluster_valid_rows(cb[tr],Ab[tr],cfg$final_tmle$internal_superlearner_folds,
+                                       seed+b+v*100L,weights=wb[tr],delta=rep(1L,length(tr)),
+                                       balance_on_weights=isTRUE(cfg$final_tmle$internal_fold_balance_on_weights),
+                                       fold_control=fold_control_from_cfg(cfg,"internal"))
+        gf <- with_sl_glmnet_context("g",seed+b+v*1000L,
+                                     cfg$learners$glmnet$internal_folds,
+                                     SuperLearner::SuperLearner(Y=Ab[tr],X=Wb[tr,,drop=FALSE],newX=Wb[te,,drop=FALSE],
+                                                                family=stats::binomial(),SL.library=lib,obsWeights=wb[tr],id=cb[tr],
+                                                                cvControl=list(V=length(vr),validRows=vr,stratifyCV=FALSE,shuffle=FALSE),
+                                                                control=list(saveFitLibrary=TRUE,saveCVFitLibrary=FALSE),verbose=FALSE))
+        assert_superlearner_fit(gf,lib,"bootstrap_g",v,length(te))
+        pred <- as.numeric(gf$SL.predict)
+        if (isTRUE(cfg$analysis$calibrate_g)) pred <- calibrate_outer_predictions(
+          gf,Ab[tr],wb[tr],pred,cfg$analysis$g_calibration_method,v,"g",
+          bounds=c(cfg$final_tmle$g_lower,cfg$final_tmle$g_upper),
+          candidates=cfg$analysis$g_calibration_candidates %||% c("identity","platt"))$prediction
+        gr[te] <- pred
+      }
+      if (any(!is.finite(gr))) stop("Bootstrap outer-held-out g predictions are incomplete.")
+      res <- list()
+      for (qs in c("Q_correct","Q_misspecified")) for (f in floors) {
+        tq1 <- if (qs=="Q_correct") q1[ix] else rep(.5,length(ix))
+        tq0 <- if (qs=="Q_correct") q0[ix] else rep(.5,length(ix))
+        gg <- pmin(pmax(gr,f),cfg$final_tmle$g_upper)
+        z <- target_composite_means(Ab,Sb,db,yy,wb,gg,r1[ix],r0[ix],
+                                    tq1,tq0,s1[ix],s0[ix],lo,rg,cfg,"att")
+        inf <- cluster_inference_from_eif(z$D,wb,cb,z$estimate,strata=hb,
+                                          design_frame=fb,domain_ids=ib,id_var=iv,cluster_var=cv,strata_var=sv,weight_var=wv)
+        res[[length(res)+1L]] <- data.frame(replicate=b,q_specification=qs,g_floor=f,
+                                            g_upper=cfg$final_tmle$g_upper,estimate=z$estimate,se=inf$se,
+                                            ci_lower=inf$ci[1L],ci_upper=inf$ci[2L],
+                                            covers_truth=truth>=inf$ci[1L] & truth<=inf$ci[2L],
+                                            frac_g_clipped=mean(abs(gg-gr)>1e-12),stringsAsFactors=FALSE)
+      }
+      do.call(rbind,res)
+    }),error=function(e)e)
+    seconds <- proc.time()[3]-rb0
+    if (b==1L) {
+      first_seconds <- seconds
+      planned <- min(M,max(1L,as.integer(floor(budget/max(seconds,.01)))))
+      msg(sprintf("  [bootstrap] First replicate %.1fs; planned maximum %d; soft budget %.0fs.",
+                  seconds,planned,budget),cfg=cfg)
+    }
+    if (inherits(ans,"error")) errors[[length(errors)+1L]] <- data.frame(
+      replicate=b,error=conditionMessage(ans),elapsed_seconds=seconds,stringsAsFactors=FALSE)
+    else rows[[length(rows)+1L]] <- ans
+    atomic_save_rds(list(replicates=if(length(rows)) do.call(rbind,rows) else NULL,
+                         errors=if(length(errors)) do.call(rbind,errors) else NULL,true_att=truth,
+                         replicates_planned=planned,first_replicate_seconds=first_seconds),progress,overwrite=TRUE)
+  }
+  if (!length(rows)) stop("Bootstrap produced no usable replicates; failure details saved in ",progress,call.=FALSE)
+  detail <- do.call(rbind,rows);done <- length(rows)
+  summary <- do.call(rbind,lapply(split(detail,list(detail$q_specification,detail$g_floor),drop=TRUE),function(z) {
+    bias <- mean(z$estimate)-truth; variance <- stats::var(z$estimate); coverage <- mean(z$covers_truth)
+    data.frame(q_specification=z$q_specification[1L],g_floor=z$g_floor[1L],true_att=truth,
+               n_replicates=nrow(z),mean_estimate=mean(z$estimate),bias=bias,variance=variance,
+               mse=bias^2+variance,empirical_sd=sqrt(variance),mean_estimated_se=mean(z$se),
+               ci_coverage=coverage,coverage_monte_carlo_se=sqrt(coverage*(1-coverage)/nrow(z)),
+               mean_frac_g_clipped=mean(z$frac_g_clipped),stringsAsFactors=FALSE)
+  }))
+  summary$replicates_requested <- M;summary$replicates_planned_after_timing <- planned
+  summary$replicates_completed <- done;summary$replicates_failed <- length(errors)
+  summary$elapsed_seconds <- proc.time()[3]-t0;summary$first_replicate_seconds <- first_seconds
+  summary$stopped_on_time_budget <- stopped;summary$budget_type <- "soft_between_replicates"
+  summary$low_replicate_warning <- done<50L
+  summary$design_scope <- "REGION_stratified_PSU_resampling_full_WaveI_domain_variance"
+  summary$estimator_scope <- "outer_crossfit_g_and_calibration;original_fold_screening_recipes_fixed"
+  summary$nuisances_held_fixed <- "eligible_Q_eligibility_response_and_realized_outcome_cap"
+  summary$interpretation <- "conditional_fitted_DGP_diagnostic_not_actual_data_coverage_validation"
+  summary$outcome_generator <- if (identical(tmle_fit$outcome_type,"binary")) "Bernoulli" else paste0("bounded_beta_precision_",phi)
+  if (done<50L) warning("Fewer than 50 usable bootstrap replicates; coverage is highly imprecise.",call.=FALSE)
+  list(summary=summary,replicates=detail,errors=if(length(errors)) do.call(rbind,errors) else data.frame())
+}
+
+run_saved_positivity_diagnostic <- function(checkpoint_path,max_seconds=5400,replicates=200L) {
+  z <- restore_completed_fit(checkpoint_path)
+  cfg <- z$cfg
+  cfg$diagnostics$enable_bootstrap_positivity_diagnostic <- TRUE
+  cfg$diagnostics$bootstrap_positivity_max_seconds <- max_seconds
+  cfg$diagnostics$bootstrap_positivity_replicates <- as.integer(replicates)
+  load_required_packages(cfg)
+  ans <- run_bootstrap_positivity_diagnostic(z$tmle_fit,cfg)
+  out <- file.path(cfg$global$output_dir,cfg$diagnostics$diagnostics_dir)
+  ensure_output_dir(out)
+  write_diag_csv(ans$summary,cfg,out,cfg$diagnostics$bootstrap_positivity_csv)
+  write_diag_csv(ans$replicates,cfg,out,cfg$diagnostics$bootstrap_positivity_replicate_csv)
+  if (nrow(ans$errors)) write_diag_csv(ans$errors,cfg,out,"bootstrap_errors.csv")
+  invisible(ans)
+}
+
+
 build_att_g_pi_clip_sensitivity <- function(tmle_fit, cfg) {
+  cfg <- adopt_fit_g_bound(cfg,tmle_fit)
   if (is.null(tmle_fit) || is.null(tmle_fit$att_components)) return(data.frame())
   rows <- list()
   if (isTRUE(cfg$diagnostics$att_g_pi_clip_include_configured %||% TRUE)) {
@@ -1469,6 +1843,23 @@ build_att_g_pi_clip_sensitivity <- function(tmle_fit, cfg) {
       cfg$final_tmle$pi_lower, cfg$final_tmle$pi_upper,
       "configured_primary_bounds")
   }
+  if (isTRUE(cfg$analysis$calibrate_g)) {
+    uncalibrated_g <- tmle_fit$att_components$gn_uncalibrated
+    if (length(uncalibrated_g) != length(tmle_fit$gn_raw) ||
+        any(!is.finite(uncalibrated_g)) ||
+        any(uncalibrated_g < 0 | uncalibrated_g > 1))
+      stop("Calibration comparison requires aligned uncalibrated g predictions.",
+           call. = FALSE)
+    uncalibrated_fit <- tmle_fit
+    uncalibrated_fit$gn_raw <- uncalibrated_g
+    rows[[length(rows) + 1L]] <- estimate_joint_att_under_clips(
+      uncalibrated_fit, cfg,
+      cfg$final_tmle$g_lower, cfg$final_tmle$g_upper,
+      cfg$final_tmle$pi_lower, cfg$final_tmle$pi_upper,
+      "uncalibrated_g_primary_bounds")
+    # Same Q, pi, rows, folds and bounds; targeting and EIF are recomputed.
+    # difference_from_primary_tmle is descriptive, not a test of the difference.
+  }
   floors <- sort(unique(as.numeric(cfg$diagnostics$att_g_pi_clip_sensitivity_floors %||%
                                      c(0.01, 0.025, 0.05))))
   for (f in floors) {
@@ -1476,7 +1867,68 @@ build_att_g_pi_clip_sensitivity <- function(tmle_fit, cfg) {
       tmle_fit, cfg, f, 1 - f, f, 1 - f,
       sprintf("symmetric_floor_%.3f", f))
   }
+  
+  # --- g-ONLY floors, pi held at the configured bounds ---------------
+  # Moving g and pi together (above) confounds them. These rows vary the g
+  # floor alone so the difference is attributable to g truncation.
+  pi_lo_fixed <- cfg$final_tmle$pi_lower
+  pi_hi_fixed <- cfg$final_tmle$pi_upper
+  g_only <- as.numeric(cfg$diagnostics$att_g_only_clip_floors %||% numeric(0))
+  g_only <- g_only[is.finite(g_only) & g_only > 0 & g_only < 0.5]
+  ss_bound <- NA_real_
+  n_for_bound <- NA_integer_
+  if (isTRUE(cfg$diagnostics$att_g_clip_include_sample_size_bound %||% TRUE)) {
+    # Gruber, Phillips, Lee & van der Laan (Am J Epidemiol 2022;191:1640-1651):
+    # lower bound c / (sqrt(n) * log(n)) with c = 5. With missing outcomes the
+    # paper directs that n be the number of OBSERVED outcomes.
+    n_obs_outcomes <- sum(as.integer(tmle_fit$att_components$delta_Y) == 1L)
+    cc <- as.numeric(cfg$diagnostics$att_g_clip_sample_size_constant %||% 5)
+    if (is.finite(n_obs_outcomes) && n_obs_outcomes > 2L && is.finite(cc) && cc > 0) {
+      n_for_bound <- as.integer(n_obs_outcomes)
+      ss_bound <- cc / (sqrt(n_obs_outcomes) * log(n_obs_outcomes))
+      if (is.finite(ss_bound) && ss_bound > 0 && ss_bound < 0.5)
+        g_only <- c(g_only, ss_bound)
+    }
+  }
+  g_only <- sort(unique(g_only))
+  for (f in g_only) {
+    lbl <- if (is.finite(ss_bound) && isTRUE(all.equal(f, ss_bound)))
+      sprintf("g_only_sample_size_bound_%.5f", f) else sprintf("g_only_floor_%.5f", f)
+    rows[[length(rows) + 1L]] <- estimate_joint_att_under_clips(
+      tmle_fit, cfg, f, cfg$final_tmle$g_upper, pi_lo_fixed, pi_hi_fixed, lbl)
+  }
+  
+  # --- ALTERNATE pi fit (A unpenalized in glmnet) --------------------
+  # Same Q, same g, same rows, same folds, same bounds. Only the observation
+  # model differs, so the difference isolates the penalization of A in pi.
+  alt_ok <- FALSE
+  {
+    a1 <- tmle_fit$pi_1W_alt_raw; a0 <- tmle_fit$pi_0W_alt_raw
+    aA <- tmle_fit$pi_AW_alt_raw
+    nref <- length(tmle_fit$pi_AW_raw)
+    alt_ok <- !is.null(a1) && !is.null(a0) && !is.null(aA) &&
+      length(a1) == nref && length(a0) == nref && length(aA) == nref &&
+      all(is.finite(a1)) && all(is.finite(a0)) && all(is.finite(aA)) &&
+      all(a1 > 0 & a1 <= 1) && all(a0 > 0 & a0 <= 1) && all(aA > 0 & aA <= 1)
+    if (alt_ok) {
+      alt_fit <- tmle_fit
+      alt_fit$pi_1W_raw <- a1; alt_fit$pi_0W_raw <- a0; alt_fit$pi_AW_raw <- aA
+      rows[[length(rows) + 1L]] <- estimate_joint_att_under_clips(
+        alt_fit, cfg, cfg$final_tmle$g_lower, cfg$final_tmle$g_upper,
+        pi_lo_fixed, pi_hi_fixed, "alt_pi_A_unpenalized_primary_bounds")
+    } else {
+      st <- tmle_fit$pi_alt_status
+      message("NOTE: alternate-pi ATT sensitivity unavailable (status: ",
+              if (is.null(st)) "absent" else paste(unique(st), collapse = "/"), ").")
+    }
+  }
+  
+  # Structural zeros are handled in the primary sequential estimator.
+  # No factual-row pi=1 override is a valid substitute for that model.
+  
   out <- do.call(rbind, rows)
+  out$g_clip_sample_size_bound <- ss_bound
+  out$g_clip_sample_size_bound_n_observed_outcomes <- n_for_bound
   # This sweep re-targets the joint ATT TMLE, so reconcile to the stored TMLE
   # component even if a separate sensitivity run chooses the one-step ATT as
   # its displayed headline.
@@ -1504,7 +1956,14 @@ run_expanded_wave2_completion_diagnostic <- function(cfg, main_df, tmle_fit, w1_
   m <- match(as.character(w1_all[[idv]]), as.character(status[[idv]])); keep <- !is.na(m)
   d <- w1_all[keep, , drop = FALSE]; complete <- as.integer(status$wave2_cesd_complete[m[keep]])
   if (anyNA(complete) || any(!complete %in% c(0L,1L))) stop("Invalid Wave-II completion indicator.", call.=FALSE)
-  selected <- unique(c(cfg$final_tmle$protected_W %||% character(0), unlist(tmle_fit$selected_by_fold %||% list(), use.names = FALSE)))
+  d$MHSum_W1 <- score_wave1_cesd(d)
+  cfg$preprocessing$global_missing_dictionary[["MHSum_W1"]] <-
+    make_native_only_missing_rule(d$MHSum_W1,"MHSum_W1")
+  if (isTRUE(cfg$analysis$restrict_wave1_depressed)) {
+    keep <- is.finite(d$MHSum_W1) & d$MHSum_W1 >= (cfg$analysis$wave1_depression_cutpoint %||% 22)
+    d <- d[keep,,drop=FALSE]; complete <- complete[keep]
+  }
+  selected <- unique(c(resolve_protected_W(cfg), unlist(tmle_fit$selected_by_fold %||% list(), use.names = FALSE)))
   selected <- intersect(selected, get_candidate_vars(d, cfg))
   if (!length(selected)) {
     message("WARNING: Expanded Wave-II completion diagnostic found no protected or ever-selected Wave-I variables.")
@@ -1515,42 +1974,266 @@ run_expanded_wave2_completion_diagnostic <- function(cfg, main_df, tmle_fit, w1_
   bal <- make_balance_table(d, cfg, complete, w, "Wave2_CESD_complete_vs_incomplete_expanded", priority_vars = selected)
   pred <- rep(NA_real_, nrow(d))
   folds <- make_cluster_folds_balanced(as.character(d[[clv]]), complete, k=5L, seed=seed_for(cfg,808080L),
-    weights=w, delta=rep(1L,nrow(d)), balance_on_weights=isTRUE(cfg$final_tmle$internal_fold_balance_on_weights), max_attempts=500L)
+                                       weights=w, delta=rep(1L,nrow(d)), balance_on_weights=isTRUE(cfg$final_tmle$internal_fold_balance_on_weights), max_attempts=500L)
   for (v in sort(unique(folds))) {
     tr <- which(folds != v); te <- which(folds == v)
     raw_tr <- d[tr, selected, drop=FALSE]; raw_te <- d[te, selected, drop=FALSE]
     mr <- learn_final_missing_recipe(raw_tr, cfg$preprocessing)
     ptr <- apply_final_missing_recipe(raw_tr, mr, cfg$preprocessing); pte <- apply_final_missing_recipe(raw_te, mr, cfg$preprocessing)
     des <- build_grouped_design_train(ptr, cfg$final_preprocess, cfg$preprocessing,
-      hard_max_cols=max(2000L, cfg$final_tmle$hard_max_processed_columns %||% 450L), A=complete[tr],
-      protected_raw_vars=cfg$final_tmle$protected_W %||% character(0))
+                                      hard_max_cols=max(2000L, cfg$final_tmle$hard_max_processed_columns %||% 450L), A=complete[tr],
+                                      protected_raw_vars=resolve_protected_W(cfg))
     xtr <- des$X; xte <- apply_preprocess_recipe(pte, des$recipes)
     miss <- setdiff(colnames(xtr), colnames(xte)); extra <- setdiff(colnames(xte), colnames(xtr))
     if (length(miss)) xte <- cbind(xte, matrix(0,nrow(xte),length(miss),dimnames=list(NULL,miss)))
     if (length(extra)) xte <- xte[,!colnames(xte)%in%extra,drop=FALSE]
     xte <- xte[,colnames(xtr),drop=FALSE]
     intfold <- make_cluster_folds_balanced(as.character(d[[clv]][tr]), complete[tr], k=3L, seed=seed_for(cfg,808080L+v),
-      weights=w[tr], delta=rep(1L,length(tr)), balance_on_weights=isTRUE(cfg$final_tmle$internal_fold_balance_on_weights), max_attempts=500L)
+                                           weights=w[tr], delta=rep(1L,length(tr)), balance_on_weights=isTRUE(cfg$final_tmle$internal_fold_balance_on_weights), max_attempts=500L)
     fit <- glmnet::cv.glmnet(x=if(requireNamespace("Matrix",quietly=TRUE)) Matrix::Matrix(xtr,sparse=TRUE) else xtr,
-      y=complete[tr], family="binomial", alpha=cfg$learners$glmnet$alpha %||% 0.5,
-      nlambda=cfg$learners$glmnet$nlambda %||% 100L, weights=w[tr], foldid=intfold,
-      standardize=isTRUE(cfg$learners$glmnet$standardize %||% TRUE), maxit=cfg$learners$glmnet$maxit %||% 100000L)
+                             y=complete[tr], family="binomial", alpha=cfg$learners$glmnet$alpha %||% 0.5,
+                             nlambda=cfg$learners$glmnet$nlambda %||% 100L, weights=w[tr], foldid=intfold,
+                             standardize=isTRUE(cfg$learners$glmnet$standardize %||% TRUE), maxit=cfg$learners$glmnet$maxit %||% 100000L)
     pred[te] <- as.numeric(predict(fit,newx=xte,s=fit$lambda.min,type="response"))
   }
   if (any(!is.finite(pred))) stop("Wave-II completion model produced invalid held-out predictions.",call.=FALSE)
   wn <- normalize_positive_weights(w,length(w),"Wave-II completion model weights"); pc <- pmin(pmax(pred,1e-12),1-1e-12)
   model <- data.frame(n=nrow(d), n_complete=sum(complete==1L), n_incomplete=sum(complete==0L),
-    weighted_completion_rate=sum(wn*complete)/sum(wn), cross_fitted_weighted_auc=weighted_auc_tie_corrected(complete,pred,wn),
-    cross_fitted_weighted_brier=sum(wn*(complete-pred)^2)/sum(wn),
-    cross_fitted_weighted_logloss=-sum(wn*(complete*log(pc)+(1-complete)*log(1-pc)))/sum(wn),
-    prediction_min=min(pred), prediction_p01=as.numeric(quantile(pred,.01,names=FALSE,type=8)), prediction_median=median(pred),
-    prediction_p99=as.numeric(quantile(pred,.99,names=FALSE,type=8)), prediction_max=max(pred), n_predictors_raw=length(selected), stringsAsFactors=FALSE)
+                      weighted_completion_rate=sum(wn*complete)/sum(wn), cross_fitted_weighted_auc=weighted_auc_tie_corrected(complete,pred,wn),
+                      cross_fitted_weighted_brier=sum(wn*(complete-pred)^2)/sum(wn),
+                      cross_fitted_weighted_logloss=-sum(wn*(complete*log(pc)+(1-complete)*log(1-pc)))/sum(wn),
+                      prediction_min=min(pred), prediction_p01=as.numeric(quantile(pred,.01,names=FALSE,type=8)), prediction_median=median(pred),
+                      prediction_p99=as.numeric(quantile(pred,.99,names=FALSE,type=8)), prediction_max=max(pred), n_predictors_raw=length(selected),
+                      predictor_selection = "protected_plus_prior_causal_screen_union",
+                      validation_scope = "fold_held_out_fits; predictor_selection_not_nested_in_completion_folds",
+                      stringsAsFactors=FALSE)
   list(balance=bal, model=model)
+}
+
+# These are inner-held-out BASE-learner scores mixed using the outer-training
+# SL coefficients. The mixture/calibrator never uses outer-validation labels.
+capture_calibration_training <- function(fit, y, w, ids, psu, fold, constant=NULL) {
+  n <- length(y)
+  if (!is.null(constant)) {
+    score <- rep(constant, n)
+    status <- "deterministic"
+  } else if (is.null(fit)) {
+    return(list(status="nuisance_fit_unavailable", fold=fold))
+  } else {
+    Z <- as.matrix(fit$Z); beta <- as.numeric(fit$coef)
+    if (nrow(Z)!=n || ncol(Z)!=length(beta) || any(!is.finite(Z)) ||
+        any(!is.finite(beta)) || any(beta < -1e-10) || abs(sum(beta)-1)>1e-6)
+      stop("Cannot archive invalid inner-held-out calibration scores.", call.=FALSE)
+    score <- pmin(pmax(as.numeric(Z %*% beta),0),1)
+    status <- "inner_base_predictions_outer_training_mixture"
+  }
+  stopifnot(length(w)==n, length(ids)==n, length(psu)==n,
+            !anyNA(ids), !anyDuplicated(ids), all(y %in% 0:1),
+            all(is.finite(w) & w>0), all(is.finite(score)))
+  list(status=status, fold=fold,
+    data=data.frame(respondent_id=as.character(ids), psu=as.character(psu),
+      score=score, label=as.integer(y), weight=as.numeric(w), stringsAsFactors=FALSE))
+}
+
+# Linearization of a weighted ratio with fitted predictions held fixed.
+# Diagnostic SEs are descriptive: they do not include nuisance-training uncertainty.
+review_ratio_summary <- function(value, multiplier, fit, cfg) {
+  a <- fit$att_components; n <- length(a$A)
+  stopifnot(length(value)==n, length(multiplier)==n,
+            all(is.finite(multiplier) & multiplier>=0))
+  use <- multiplier>0
+  if (any(!is.finite(value[use]))) stop("Nonfinite diagnostic value on contributing rows.")
+  np <- length(unique(a$cluster[use])); nr <- sum(use)
+  ans <- list(estimate=NA_real_, se=NA_real_, n=nr, psus=np,
+              ess=if (nr) kish_eff_n(a$weights[use]*multiplier[use]) else 0,
+              se_status="no_support")
+  if (!nr) return(ans)
+  mu <- stats::weighted.mean(value[use], a$weights[use]*multiplier[use])
+  ans$estimate <- mu
+  if (nr<2L || np<2L) {ans$se_status <- "insufficient_rows_or_PSUs"; return(ans)}
+  D <- numeric(n)
+  D[use] <- multiplier[use]*(value[use]-mu)/stats::weighted.mean(multiplier,a$weights)
+  inf <- cluster_inference_from_eif(D=D, weights=a$weights, cluster=a$cluster,
+    estimate=mu, strata=a$strata, design_frame=fit$survey_design_frame,
+    domain_ids=fit$respondent_ids, id_var=cfg$analysis$id_var,
+    cluster_var=cfg$analysis$cluster_var, strata_var=cfg$analysis$strata_var,
+    weight_var=cfg$analysis$weight_var)
+  ans$se <- inf$se
+  ans$se_status <- if (is.finite(inf$se) && inf$se>0) "fixed_fit_design_linearization" else "degenerate_empirical_variance"
+  if (!is.finite(inf$se) || inf$se<=0) ans$se <- NA_real_
+  ans
+}
+
+build_calibration_region_diagnostic <- function(fit, cfg) {
+  a <- fit$att_components; n <- length(a$A)
+  stopifnot(length(a$gn_raw)==n, all(is.finite(a$gn_raw)))
+  # Fixed, overlapping thresholds; not selected using the observed losses.
+  region_g <- fit$calibration_region_reference_g %||% a$gn_raw
+  stopifnot(length(region_g)==n,all(is.finite(region_g)))
+  regions <- list(all=rep(TRUE,n), g_above_0.3=region_g>.3,
+                  g_above_0.5=region_g>.5, g_above_0.7=region_g>.7)
+  bins <- cut(region_g, breaks=seq(0,1,.1), include.lowest=TRUE)
+  for (lev in levels(bins)) regions[[paste0("g_bin_",lev)]] <- bins==lev
+  ll <- function(y,p) {p <- pmin(pmax(p,1e-12),1-1e-12); -(y*log(p)+(1-y)*log1p(-p))}
+  rows <- list()
+  for (target in c("g","pi")) {
+    y <- if (target=="g") a$A else a$delta_Y
+    u <- if (target=="g") a$gn_uncalibrated else a$pi_AW_uncalibrated
+    p <- if (target=="g") a$gn_raw else a$pi_AW_raw
+    stopifnot(length(u)==n, length(p)==n, all(is.finite(u)), all(is.finite(p)))
+    domain <- if (target=="g") rep(TRUE,n) else !a$structural_zero
+    for (reg in names(regions)) {
+      use <- regions[[reg]] & domain
+      for (metric in c("logloss","brier")) {
+        lu <- if (metric=="logloss") ll(y,u) else (y-u)^2
+        lp <- if (metric=="logloss") ll(y,p) else (y-p)^2
+        z <- review_ratio_summary(lu-lp, as.numeric(use), fit,cfg)
+        rows[[length(rows)+1L]] <- data.frame(target=target, region=reg, metric=metric,
+          n=z$n, n_treated=sum(use & a$A==1), n_controls=sum(use & a$A==0),
+          contributing_psus=z$psus, survey_weight_ess=z$ess,
+          identity_loss=if(any(use)) stats::weighted.mean(lu[use],a$weights[use]) else NA_real_,
+          active_loss=if(any(use)) stats::weighted.mean(lp[use],a$weights[use]) else NA_real_,
+          identity_minus_active=z$estimate, paired_design_se=z$se, se_status=z$se_status,
+          region_definition=if (is.null(fit$calibration_region_reference_g)) "active_preclip_g; thresholds overlap; bins disjoint" else "fixed_primary_preclip_g; same regions across calibrators",
+          interpretation="positive gain favors active predictions; descriptive fixed-fit comparison, not causal bias",
+          stringsAsFactors=FALSE)
+      }
+    }
+  }
+  do.call(rbind,rows)
+}
+
+build_baseline_residual_diagnostic <- function(fit, cfg) {
+  d <- fit$review_data; a <- fit$att_components
+  if (is.null(d)) stop("Checkpoint lacks baseline review data; requires the revised fit.")
+  stopifnot(identical(as.character(d[[cfg$analysis$id_var]]),as.character(fit$respondent_ids)))
+  err <- a$Y_bounded_orig-(fit$Qeligible0W*fit$y_range+fit$y_lower)
+  stopifnot(length(err)==nrow(d))
+  keep <- a$A==0 & !a$structural_zero & a$delta_Y==1
+  tc <- a$weights*(a$A==1)
+  cw <- a$weights*(a$A==0)*a$gn/(1-a$gn)
+  requested <- cfg$diagnostics$baseline_residual_variables
+  rows <- list()
+  for (v in requested) {
+    if (!v %in% names(d)) {
+      rows[[length(rows)+1L]] <- data.frame(variable=v, level=NA_character_, status="variable_absent",
+        n_treated=NA_integer_, n_controls=NA_integer_, n_observed_controls=NA_integer_,
+        observed_control_psus=NA_integer_, observed_control_ess=NA_real_,
+        treated_share=NA_real_, att_weighted_control_share=NA_real_,
+        error=NA_real_, se=NA_real_, se_status="not_evaluated", stringsAsFactors=FALSE)
+      next
+    }
+    rule <- get_missing_rule(d[[v]],cfg$preprocessing,v)
+    masks <- missing_masks_from_rule(d[[v]],rule)
+    x <- as.character(d[[v]])
+    x[masks$general] <- "Missing"
+    x[masks$skip] <- "Legitimate_skip"
+    stopifnot(!anyNA(x))
+    for (lev in sort(unique(x))) {
+      member <- x==lev
+      h <- as.numeric(keep & member)/a$pi_AW
+      z <- review_ratio_summary(err,h,fit,cfg)
+      rows[[length(rows)+1L]] <- data.frame(variable=v, level=lev, status="evaluated",
+        n_treated=sum(member & a$A==1), n_controls=sum(member & a$A==0),
+        n_observed_controls=z$n, observed_control_psus=z$psus, observed_control_ess=z$ess,
+        treated_share=sum(tc[member])/sum(tc), att_weighted_control_share=sum(cw[member])/sum(cw),
+        error=z$estimate, se=z$se, se_status=z$se_status, stringsAsFactors=FALSE)
+    }
+  }
+  if (!length(rows)) return(data.frame())
+  out <- do.call(rbind,rows)
+  out$interpretation <- "Exploratory eligible-Q0 residual: observed minus predicted; IPCW observed controls; fixed-fit SE; not ATT bias or a variable-selection rule"
+  out
+}
+
+build_status_exposure_diagnostic <- function(fit, cfg) {
+  d <- fit$status_records
+  if (is.null(d) || !nrow(d)) return(data.frame(status="status_recoding_inactive"))
+  a <- fit$att_components
+  j <- match(fit$respondent_ids,as.character(d[[cfg$analysis$id_var]]))
+  stopifnot(!anyNA(j),!anyDuplicated(d[[cfg$analysis$id_var]]))
+  d <- d[j,,drop=FALSE]
+  rows <- list()
+  for (arm in 0:1) for (reason in unique(d$reason)) {
+    ii <- a$A==arm & d$reason==reason
+    if (!any(ii)) next
+    rows[[length(rows)+1L]] <- data.frame(exposure=arm, reason=reason,
+      n=sum(ii), weighted_arm_fraction=sum(a$weights[ii])/sum(a$weights[a$A==arm]),
+      verified_status_zeros=sum(d$status_zero[ii]==1),
+      interview_reference_n=sum(d$reference_period[ii]=="Wave_IV_interview"),
+      disposition_reference_n=sum(d$reference_period[ii]=="Wave_IV_final_field_disposition"),
+      military_response_conflicts=sum(d$military_response_conflict[ii] %in% TRUE),
+      missing_to_zero=sum(!is.finite(d$outcome_before[ii]) & is.finite(d$outcome_after[ii]) & d$outcome_after[ii]==0),
+      nonzero_to_zero=sum(is.finite(d$outcome_before[ii]) & d$outcome_before[ii]!=0 & is.finite(d$outcome_after[ii]) & d$outcome_after[ii]==0),
+      nonzero_to_missing=sum(is.finite(d$outcome_before[ii]) & d$outcome_before[ii]!=0 & !is.finite(d$outcome_after[ii])),
+      outcome_still_missing=sum(!is.finite(d$outcome_after[ii])), stringsAsFactors=FALSE)
+  }
+  do.call(rbind,rows)
+}
+
+# Same held-out reference score under both sets of ATT odds weights.
+build_calibration_prognostic_comparison <- function(fit,cfg) {
+  cfg <- adopt_fit_g_bound(cfg,fit)
+
+  ac <- fit$att_components
+  stopifnot(length(ac$gn_uncalibrated)==length(ac$A),all(is.finite(ac$gn_uncalibrated)))
+  active <- build_prognostic_score_balance(fit,cfg)
+  identity <- fit
+  identity$att_components$gn <- pmin(pmax(ac$gn_uncalibrated,
+    cfg$final_tmle$g_lower),cfg$final_tmle$g_upper)
+  raw <- build_prognostic_score_balance(identity,cfg)
+  active$weight_specification <- "active_g"
+  raw$weight_specification <- "identity_g_same_bounds"
+  rbind(active,raw)
+}
+
+# Optional offline g calibration comparison. No Q/g/pi learner is refitted.
+# Fits each map on its saved OUTER-training scores, then retargets held-out g.
+# Returns a comparison; never replaces the primary fit or selects by p-value.
+retarget_saved_g_calibration <- function(checkpoint_path, method=c("platt","isotonic","identity")) {
+  method <- match.arg(method)
+  ans <- retarget_saved_calibration(checkpoint_path,g_method=method)
+  ans$scenario <- paste0("saved_g_",method)
+  ans
+}
+
+# Run the descriptive checks again from the completed fit, if necessary.
+# A diagnostic failure does not discard the other outputs or request a refit.
+run_saved_review_diagnostics <- function(checkpoint_path, output_dir=NULL) {
+  z <- restore_completed_fit(checkpoint_path); cc <- z$cfg
+  if (is.null(output_dir)) output_dir <- file.path(dirname(checkpoint_path),"review")
+  ensure_output_dir(output_dir)
+  jobs <- list(cal_region=build_calibration_region_diagnostic,
+    base_resid=build_baseline_residual_diagnostic,
+    status_by_A=build_status_exposure_diagnostic,
+    cal_prog=build_calibration_prognostic_comparison,
+    cal_prog_all=build_all_calibration_prognostic,
+    joint_resid=build_joint_baseline_residual,
+    cal_compare=build_offline_calibration_comparison,
+    cal_losses=build_offline_calibration_losses,
+    q_compare=build_broad_Q_comparison,
+    q_validate=build_broad_Q_validation,
+      q_resid_cmp=build_residual_Q_comparison,
+      q_resid_val=build_residual_Q_validation,
+      q_resid_sel=build_residual_Q_selection,
+      q_resid_fit=build_residual_Q_fit_log,
+    mnar_points=build_att_mnar_point_thresholds,
+    mnar_two_part=build_att_mnar_two_part)
+  status <- lapply(names(jobs),function(nm) {
+    tryCatch({ans <- jobs[[nm]](z$tmle_fit,cc)
+      utils::write.csv(ans,file.path(output_dir,paste0(nm,".csv")),row.names=FALSE)
+      data.frame(diagnostic=nm,status="success",error="")},
+      error=function(e) data.frame(diagnostic=nm,status="error",error=conditionMessage(e)))
+  })
+  status <- do.call(rbind,status)
+  utils::write.csv(status,file.path(output_dir,"review_status.csv"),row.names=FALSE)
+  print(status); invisible(status)
 }
 
 run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
                                         tmle_fit = NULL, raw_w1_rows = NULL,
                                         w1_all = NULL) {
+  if (!is.null(tmle_fit)) cfg <- adopt_fit_g_bound(cfg,tmle_fit)
   if (is.null(cfg$preprocessing$global_missing_dictionary) ||
       !length(cfg$preprocessing$global_missing_dictionary)) {
     cfg$preprocessing$global_missing_dictionary <-
@@ -1567,7 +2250,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
   out_dir <- file.path(cfg$global$output_dir, cfg$diagnostics$diagnostics_dir)
   ensure_output_dir(out_dir)
   msg(sprintf("  [diag] Output directory: %s", out_dir), cfg = cfg)
-
+  
   optional_status_rows <- list()
   balance_scan_timing_rows <- list()
   run_optional <- function(label, fun) {
@@ -1586,23 +2269,51 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
         stringsAsFactors = FALSE)
     invisible(NULL)
   }
-
+  
   A <- normalize_binary_var(main_df[[cfg$analysis$exposure_var]], cfg$analysis$exposure_var)
   delta_Y <- as.integer(!is.na(main_df[[cfg$analysis$outcome_var]]))
   w <- as.numeric(main_df[[cfg$analysis$weight_var]])
   w[!is.finite(w) | w <= 0] <- NA_real_
-
+  
   # Targeted missing-code audit and raw-dollar tail/cap audit are descriptive
   # safeguards only; neither changes the analysis data or estimator.
   miss_audit <- build_targeted_missing_code_audit(main_df, cfg, tmle_fit)
   if (nrow(miss_audit) > 0L && isTRUE(cfg$diagnostics$save_csvs))
     write_diag_csv(miss_audit, cfg, out_dir,
-      cfg$diagnostics$missing_code_audit_csv %||% "targeted_missing_code_audit.csv")
+                   cfg$diagnostics$missing_code_audit_csv %||% "targeted_missing_code_audit.csv")
   tail_audit <- build_earnings_tail_cap_audit(main_df, cfg, tmle_fit, A, w)
   if (nrow(tail_audit) > 0L && isTRUE(cfg$diagnostics$save_csvs))
     write_diag_csv(tail_audit, cfg, out_dir,
-      cfg$diagnostics$earnings_tail_audit_csv %||% "earnings_tail_cap_audit.csv")
+                   cfg$diagnostics$earnings_tail_audit_csv %||% "earnings_tail_cap_audit.csv")
   cluster <- as.character(main_df[[cfg$analysis$cluster_var]])
+  
+  if (!is.null(tmle_fit) && isTRUE(cfg$diagnostics$enable_checkpoint_review)) {
+    review_jobs <- list(cal_region=build_calibration_region_diagnostic,
+      base_resid=build_baseline_residual_diagnostic,
+      status_by_A=build_status_exposure_diagnostic,
+      cal_prog=build_calibration_prognostic_comparison,
+      cal_prog_all=build_all_calibration_prognostic,
+      joint_resid=build_joint_baseline_residual,
+      cal_compare=build_offline_calibration_comparison,
+      cal_losses=build_offline_calibration_losses,
+      q_compare=build_broad_Q_comparison,
+      q_validate=build_broad_Q_validation,
+      q_resid_cmp=build_residual_Q_comparison,
+      q_resid_val=build_residual_Q_validation,
+      q_resid_sel=build_residual_Q_selection,
+      q_resid_fit=build_residual_Q_fit_log,
+      mnar_points=build_att_mnar_point_thresholds,
+    mnar_two_part=build_att_mnar_two_part)
+    for (nm in names(review_jobs)) local({
+      name <- nm; fun <- review_jobs[[nm]]
+      run_optional(paste0("checkpoint review: ",name),function() {
+        ans <- fun(tmle_fit,cfg)
+        if (isTRUE(cfg$diagnostics$save_csvs))
+          write_diag_csv(ans,cfg,out_dir,paste0(name,".csv"))
+        ans
+      })
+    })
+  }
 
   # ---- Sample flow summary -----------------------------------------------
   msg("  [diag] Building sample-flow summary...", cfg = cfg)
@@ -1616,12 +2327,23 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     write_diag_csv(sample_flow, cfg, out_dir, "sample_flow.csv")
   if (!is.null(tmle_fit) && !is.null(tmle_fit$att_components)) {
     ac_audit <- tmle_fit$att_components
-    capped <- is.finite(ac_audit$Y_raw) & ac_audit$Y_raw > ac_audit$y_upper
-    mort_cfg <- cfg$mortality_sensitivity %||% list()
-    interview_var <- mort_cfg$interview_year_var %||% "IYEAR4"
-    interview_year <- if (interview_var %in% names(main_df))
+    cap_input <- if (identical(cfg$outcome$family,"HoursWorked"))
+      ac_audit$hours_uncapped else ac_audit$Y_raw
+    cap_available <- length(cap_input)==length(ac_audit$A)
+    capped <- if (cap_available) is.finite(cap_input) &
+      cap_input>ac_audit$y_upper & ac_audit$delta_Y==1L & !ac_audit$structural_zero else
+      rep(NA,length(ac_audit$A))
+    mort_cfg <- if (mortality_enabled_for_wave(cfg, cfg$outcome$current_wave))
+      resolve_mortality_spec(cfg, cfg$outcome$current_wave) else list(enabled = FALSE)
+    interview_var <- mort_cfg$interview_year_var %||% NULL
+    interview_month_var <- mort_cfg$interview_month_var %||% NULL
+    timing_status_var <- mort_cfg$timing_status_var %||% NULL
+    interview_year <- if (!is.null(interview_var) && interview_var %in% names(main_df))
       suppressWarnings(as.integer(main_df[[interview_var]])) else
-      rep(NA_integer_, nrow(main_df))
+        rep(NA_integer_, nrow(main_df))
+    interview_month <- if (!is.null(interview_month_var) && interview_month_var %in% names(main_df))
+      suppressWarnings(as.integer(main_df[[interview_month_var]])) else
+        rep(NA_integer_, nrow(main_df))
     compact_year_counts <- function(x) {
       tab <- table(x[is.finite(x)], useNA = "no")
       if (!length(tab)) return(NA_character_)
@@ -1641,6 +2363,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       valid_zero_exact_n = flow$valid_zero_exact_final %||% NA_integer_,
       cap_probability = tmle_fit$result$cap_probability[1L],
       cap_value = ac_audit$y_upper,
+      cap_audit_available = cap_available,
       capped_total_n = sum(capped),
       capped_treated_n = sum(capped & A == 1L),
       capped_control_n = sum(capped & A == 0L),
@@ -1650,34 +2373,42 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       analytic_psu_n = length(unique(cluster)),
       full_design_psu_n = flow$full_design_psu %||% NA_integer_,
       strata_n = length(unique(main_df[[cfg$analysis$strata_var]])),
-      interview_year_variable = interview_var,
+      interview_year_variable = interview_var %||% NA_character_,
+      interview_month_variable = interview_month_var %||% NA_character_,
       interview_year_observed_n = sum(is.finite(interview_year)),
+      interview_month_observed_n = sum(is.finite(interview_month)),
+      complete_interview_date_n = sum(is.finite(interview_year) & is.finite(interview_month)),
       interview_year_missing_n = sum(!is.finite(interview_year)),
+      interview_month_missing_n = sum(!is.finite(interview_month)),
       interview_year_counts = compact_year_counts(interview_year),
-      interview_year_role = "audit_only_never_used_for_mortality_classification",
+      mortality_timing_status_counts = if (!is.null(timing_status_var) &&
+                                           timing_status_var %in% names(main_df)) {
+        tab <- table(main_df[[timing_status_var]], useNA = "ifany")
+        paste(paste0(names(tab), "=", as.integer(tab)), collapse = ";")
+      } else NA_character_,
       mortality_classification_source = if (isTRUE(mort_cfg$enabled %||% FALSE))
-        mort_cfg$source_var %||% "NDIDD19Y" else NA_character_,
+        paste(mort_cfg$source_var %||% "NDIDD19Y",
+              mort_cfg$source_month_var %||% "NDIDD19M", sep = "+") else NA_character_,
       mortality_classification_window = if (isTRUE(mort_cfg$enabled %||% FALSE))
-        sprintf("%d-%d inclusive", as.integer(mort_cfg$death_year_start),
-                as.integer(mort_cfg$death_year_end)) else NA_character_,
+        mortality_timing_rule_text(mort_cfg) else NA_character_,
       mortality_death_with_interview_year_n = if (isTRUE(mort_cfg$enabled %||% FALSE) &&
-          mort_cfg$death_before_outcome_var %in% names(main_df))
+                                                  !is.null(interview_var) && mort_cfg$death_before_outcome_var %in% names(main_df))
         sum(main_df[[mort_cfg$death_before_outcome_var]] == 1L & is.finite(interview_year),
             na.rm = TRUE) else NA_integer_,
       mortality_death_without_interview_year_n = if (isTRUE(mort_cfg$enabled %||% FALSE) &&
-          mort_cfg$death_before_outcome_var %in% names(main_df))
+                                                     !is.null(interview_var) && mort_cfg$death_before_outcome_var %in% names(main_df))
         sum(main_df[[mort_cfg$death_before_outcome_var]] == 1L & !is.finite(interview_year),
             na.rm = TRUE) else NA_integer_,
       dollar_price_year = NA_integer_,
-      dollar_basis = mort_cfg$earnings_price_basis %||%
-        "nominal_past_year_dollars_no_inflation_adjustment",
-      inflation_adjustment_applied = FALSE,
+      dollar_basis = if (identical(cfg$outcome$family, "Compensation"))
+        "nominal_past_year_dollars_no_inflation_adjustment" else NA_character_,
+      inflation_adjustment_applied = if (identical(cfg$outcome$family, "Compensation")) FALSE else NA,
       stringsAsFactors = FALSE)
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(analysis_audit, cfg, out_dir,
-        cfg$diagnostics$analysis_sample_audit_csv %||% "analysis_sample_audit.csv")
+                     cfg$diagnostics$analysis_sample_audit_csv %||% "analysis_sample_audit.csv")
   }
-
+  
   # ---- Effective sample size -----------------------------------------------
   ess_rows <- list(
     overall = data.frame(group = "overall", n = length(w), n_eff = kish_eff_n(w)),
@@ -1697,7 +2428,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
   if (isTRUE(cfg$diagnostics$save_csvs)) {
     write_diag_csv(ess_df, cfg, out_dir, cfg$diagnostics$effective_sample_size_csv %||% "effective_sample_size.csv")
   }
-
+  
   # ---- Selection consistency -----------------------------------------------
   if (!is.null(tmle_fit)) {
     msg("  [diag] Aggregating cross-fold variable-selection consistency...", cfg = cfg)
@@ -1768,7 +2499,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
                      cfg$diagnostics$fold_selection_stability_csv %||% "fold_selection_stability.csv")
     }
   }
-
+  
   # ---- Learner weights ------------------------------------------------------
   if (!is.null(tmle_fit) && !is.null(tmle_fit$sl_log)) {
     msg("  [diag] Summarizing SuperLearner meta-weights...", cfg = cfg)
@@ -1815,20 +2546,20 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       }))
       if (isTRUE(cfg$diagnostics$save_csvs)) {
         write_diag_csv(lr, cfg, out_dir,
-          cfg$diagnostics$learner_risk_long_csv %||% "learner_cv_risk_long.csv")
+                       cfg$diagnostics$learner_risk_long_csv %||% "learner_cv_risk_long.csv")
         write_diag_csv(lr_sum, cfg, out_dir,
-          cfg$diagnostics$learner_risk_summary_csv %||% "learner_cv_risk_summary.csv")
+                       cfg$diagnostics$learner_risk_summary_csv %||% "learner_cv_risk_summary.csv")
       }
     }
   }
-
+  
   if (!is.null(tmle_fit) && !is.null(tmle_fit$sl_log) && isTRUE(cfg$diagnostics$save_csvs)) {
     outer_validation <- make_outer_validation_summary(tmle_fit$sl_log, tmle_fit)
     if (nrow(outer_validation))
       write_diag_csv(outer_validation, cfg, out_dir,
-        cfg$diagnostics$nuisance_outer_validation_csv %||% "nuisance_outer_validation_summary.csv")
+                     cfg$diagnostics$nuisance_outer_validation_csv %||% "nuisance_outer_validation_summary.csv")
   }
-
+  
   # ---- Per-fold plug-in ATE diagnostics ------------------------------------
   if (!is.null(tmle_fit)) {
     folds <- sort(unique(tmle_fit$outer_fold))
@@ -1842,7 +2573,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       write_diag_csv(fold_ate, cfg, out_dir, cfg$diagnostics$per_fold_ate_csv %||% "per_fold_ate_diagnostics.csv")
     }
   }
-
+  
   # ---- ATT-specific diagnostics --------------------------------------------
   # All computed from the canonical per-row ATT components saved by the TMLE
   # routine (att_components), so every number is consistent with the headline
@@ -1855,14 +2586,14 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     Aa  <- ac$A; wn <- ac$w_norm; of <- ac$outer_fold; cl <- ac$cluster
     num <- Aa * ac$att_summand + ac$att_resid    # per-row numerator of psi_att
     den_all <- sum(wn * Aa)                        # denominator = weighted treated count
-
+    
     # Helper: one-step ATT on an arbitrary row-subset (logical or index vector).
     att_on_subset <- function(keep) {
       d <- sum(wn[keep] * Aa[keep])
       if (!is.finite(d) || d <= 0) return(NA_real_)
       sum(wn[keep] * num[keep]) / d
     }
-
+    
     # (1) Per-fold ATT diagnostics ------------------------------------------
     folds_a <- sort(unique(of))
     # for a binary outcome, log per-fold treated/control event counts
@@ -1890,8 +2621,8 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     }))
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_per_fold, cfg, out_dir,
-        cfg$diagnostics$att_per_fold_csv %||% "att_per_fold_diagnostics.csv")
-
+                     cfg$diagnostics$att_per_fold_csv %||% "att_per_fold_diagnostics.csv")
+    
     # (2) Per-cluster ATT influence (all clusters) --------------------------
     # cl_eic_att[k] = sum over rows in cluster k of (w_norm * D_att); the ATT
     # SE is built from these. Report each cluster's contribution and its
@@ -1912,8 +2643,8 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     att_cl_all <- att_cl_all[order(-att_cl_all$abs_eic_contribution), , drop = FALSE]
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_cl_all, cfg, out_dir,
-        cfg$diagnostics$att_cluster_influence_all_csv %||% "att_cluster_influence_all.csv")
-
+                     cfg$diagnostics$att_cluster_influence_all_csv %||% "att_cluster_influence_all.csv")
+    
     # (2b) Inference robustness diagnostics (finite-sample, no nuisance refit) ----
     # The primary interval is the REGION-stratified, PSUSCID-clustered,
     # with-replacement survey-design EIF interval saved by the estimator.
@@ -1931,10 +2662,10 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     se_loco <- if (Gj > 1L) sqrt((Gj - 1) / Gj * sum((lo - mean(lo))^2)) else NA_real_
     Bboot <- 2000L
     boot <- with_local_seed(seed_for(cfg, 424242L),
-      vapply(seq_len(Bboot), function(b) {
-        xi <- sample(c(-1, 1), G_cl, replace = TRUE)
-        ac$psi_att + sum(xi * Sg) / n_rows_att
-      }, numeric(1)))
+                            vapply(seq_len(Bboot), function(b) {
+                              xi <- sample(c(-1, 1), G_cl, replace = TRUE)
+                              ac$psi_att + sum(xi * Sg) / n_rows_att
+                            }, numeric(1)))
     se_boot <- stats::sd(boot)
     boot_ci <- stats::quantile(boot, c(0.025, 0.975), names = FALSE, type = 7)
     s2sorted <- sort(Sg^2, decreasing = TRUE)
@@ -1976,13 +2707,13 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       stringsAsFactors = FALSE)
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_inf, cfg, out_dir, "att_inference_robustness.csv")
-
+    
     # (3) Top influential clusters ------------------------------------------
     top_k_show <- min(10L, nrow(att_cl_all))
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(utils::head(att_cl_all, top_k_show), cfg, out_dir,
-        cfg$diagnostics$att_top_cluster_influence_csv %||% "top_att_cluster_influence.csv")
-
+                     cfg$diagnostics$att_top_cluster_influence_csv %||% "top_att_cluster_influence.csv")
+    
     # (4) Leave-top-k-clusters-out ATT --------------------------------------
     ranked_clusters <- att_cl_all$cluster   # already sorted by |contribution|
     kvec <- cfg$diagnostics$att_leaveout_top_k %||% c(1L, 3L, 5L)
@@ -2001,8 +2732,8 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     }))
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_leaveout, cfg, out_dir,
-        cfg$diagnostics$att_cluster_influence_leaveout_csv %||% "att_cluster_influence_leaveout.csv")
-
+                     cfg$diagnostics$att_cluster_influence_leaveout_csv %||% "att_cluster_influence_leaveout.csv")
+    
     # (5) Estimator decomposition -------------------------------------------
     # psi_att = [ contrast_term + treated_resid_term - control_resid_term ] / den
     # where the three numerator pieces are the weighted sums. The control resid
@@ -2022,8 +2753,8 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       stringsAsFactors = FALSE)
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_decomp, cfg, out_dir,
-        cfg$diagnostics$att_estimator_decomposition_csv %||% "att_estimator_decomposition.csv")
-
+                     cfg$diagnostics$att_estimator_decomposition_csv %||% "att_estimator_decomposition.csv")
+    
     # (6) EIF diagnostics ----------------------------------------------------
     Dw <- wn * ac$D_att
     eif_sd_w <- sqrt(sum((Dw - mean(Dw))^2) / length(Dw))
@@ -2042,8 +2773,8 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       stringsAsFactors = FALSE)
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_eif_diag, cfg, out_dir,
-        cfg$diagnostics$att_eif_diagnostics_csv %||% "att_eif_diagnostics.csv")
-
+                     cfg$diagnostics$att_eif_diagnostics_csv %||% "att_eif_diagnostics.csv")
+    
     # (7) ATT control-weight ESS by fold ------------------------------------
     # Under the ATT, controls carry odds-weights g/(1-g) (times survey weight).
     # The Kish ESS of those weights among controls in each fold measures how
@@ -2061,14 +2792,16 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     }))
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_ctrl_ess, cfg, out_dir,
-        cfg$diagnostics$att_weighted_control_ess_by_fold_csv %||% "att_weighted_control_ess_by_fold.csv")
-
+                     cfg$diagnostics$att_weighted_control_ess_by_fold_csv %||% "att_weighted_control_ess_by_fold.csv")
+    
     # (8) Censoring-model positivity and calibration ---------------------
     # Report both the IPCW distribution and actual held-out calibration of
     # pi(A,W) against delta_Y. Decile rows use equal-count bins but weighted
     # predicted and observed means, while summary rows include weighted Brier
     # and log loss.
     pi_arm_diagnostics <- function(mask, label) {
+      mask <- mask & ac$eligibility==1L
+      if (!any(mask)) return(NULL)
       pim <- as.numeric(ac$pi_AW[mask])
       yy <- as.integer(ac$delta_Y[mask])
       ww <- normalize_positive_weights(ac$weights[mask], sum(mask), paste0("pi diagnostic ", label))
@@ -2112,7 +2845,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       pi_arm_diagnostics(rep(TRUE, length(Aa)), "all"))
     if (isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(att_pi_cal, cfg, out_dir,
-        cfg$diagnostics$att_pi_positivity_calibration_csv %||% "att_pi_positivity_calibration.csv")
+                     cfg$diagnostics$att_pi_positivity_calibration_csv %||% "att_pi_positivity_calibration.csv")
     pi_contrast <- run_optional("pi_treatment_contrast", function() {
       assert_required_columns(
         ac, c("outer_fold", "weights", "pi_1W", "pi_0W"),
@@ -2187,7 +2920,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
             "pi_treatment_contrast.csv")
       out
     })
-
+    
     # (9) Joint g/pi clipping sensitivity ----------------------------------
     # Reuses the same raw held-out nuisance predictions and Q fits, then
     # re-clips, re-targets both ATT components, and recomputes the EIF. This
@@ -2199,18 +2932,31 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     clip_sens <- build_att_g_pi_clip_sensitivity(tmle_fit, cfg)
     if (nrow(clip_sens) > 0L && isTRUE(cfg$diagnostics$save_csvs))
       write_diag_csv(clip_sens, cfg, out_dir,
-        cfg$diagnostics$att_g_pi_clip_sensitivity_csv %||% "att_g_pi_clip_sensitivity.csv")
-
+                     cfg$diagnostics$att_g_pi_clip_sensitivity_csv %||% "att_g_pi_clip_sensitivity.csv")
+    
+    # descriptive fitted-pi audit on verified structural zeros, by arm.
+    # Optional: absent mortality linkage this is simply empty.
+    run_optional("structural-zero pi audit", function() {
+      sz_audit <- build_structural_zero_pi_audit(tmle_fit, cfg)
+      if (nrow(sz_audit) > 0L && isTRUE(cfg$diagnostics$save_csvs))
+        write_diag_csv(sz_audit, cfg, out_dir,
+                       cfg$diagnostics$att_structural_zero_pi_audit_csv %||%
+                         "att_structural_zero_pi_audit.csv")
+    })
+    
     # (10) Tail-perturbation diagnostic (NO nuisance refit) ------------------
     # The headline uses one canonical outcome capped at the configured primary
-    # quantile in Q fitting, targeting, and the EIF. This inexpensive diagnostic
+    # bound (fixed for hours; quantile for earnings) in Q, targeting and the EIF.
+    # This inexpensive diagnostic
     # perturbs only the residual outcome cap while holding the fitted nuisance
     # functions and targeted contrast fixed. It is therefore explicitly NOT a
     # full alternative-estimand analysis. The curated sensitivity runner below
     # performs full refits at q0.990 and q1.000.
     if (identical(tmle_fit$outcome_type, "continuous")) {
       qs <- cfg$diagnostics$att_outcome_bound_quantiles %||% c(0.95, 0.975, 0.98, 0.99, 0.995)
-      primary_q <- as.numeric(cfg$outcome$continuous_upper_quantile %||% NA_real_)
+      fixed_primary_cap <- identical(cfg$outcome$family, "HoursWorked")
+      primary_q <- if (fixed_primary_cap) NA_real_ else
+        as.numeric(cfg$outcome$continuous_upper_quantile %||% NA_real_)
       if (is.finite(primary_q)) qs <- qs[abs(qs - primary_q) > 1e-12]
       obs_mask <- ac$delta_Y == 1L & is.finite(ac$Y_raw)
       y_obs_vals <- ac$Y_raw[obs_mask]
@@ -2219,11 +2965,12 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
         cap <- compute_continuous_cap(y_obs_vals, y_obs_weights, q, cfg)
         y_w <- ac$Y_bounded_orig
         y_w[obs_mask] <- pmin(ac$Y_raw[obs_mask], cap)
-        resid_w  <- ifelse(obs_mask, y_w - ac$QbarAW_orig, 0)
-        aresid_w <- (Aa * resid_w / ac$pi_AW) -
-                    ((1 - Aa) * (ac$gn / (1 - ac$gn)) * resid_w / ac$pi_AW)
+        eligible <- (ac$eligibility %||% rep(1L,length(Aa)))==1L
+        delta_y <- ifelse(obs_mask & eligible,y_w-ac$Y_bounded_orig,0)
+        aresid_w <- ac$att_resid+(Aa-(1-Aa)*ac$gn/(1-ac$gn))*delta_y/ac$pi_AW
         psi_w <- sum(wn * (Aa * ac$att_summand + aresid_w)) / den_all
         data.frame(
+          scenario = "fixed_nuisance_quantile_perturbation",
           cap_probability = q,
           cap_weighted = isTRUE(cfg$outcome$continuous_cap_weighted %||% TRUE),
           cap_quantile_rule = cfg$outcome$continuous_cap_qrule %||% "hf8",
@@ -2233,9 +2980,12 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
           stringsAsFactors = FALSE)
       }))
       att_bound_ref <- data.frame(
-        cap_probability = cfg$outcome$continuous_upper_quantile,
-        cap_weighted = isTRUE(cfg$outcome$continuous_cap_weighted %||% TRUE),
-        cap_quantile_rule = cfg$outcome$continuous_cap_qrule %||% "hf8",
+        scenario = "primary",
+        cap_probability = primary_q,
+        cap_weighted = if (fixed_primary_cap) FALSE else
+          isTRUE(cfg$outcome$continuous_cap_weighted %||% TRUE),
+        cap_quantile_rule = if (fixed_primary_cap) "fixed" else
+          cfg$outcome$continuous_cap_qrule %||% "hf8",
         outcome_cap = tmle_fit$result$cap_value[1L],
         att_estimate = ac$psi_att,
         difference_from_headline = 0,
@@ -2243,14 +2993,14 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       att_bound <- rbind(att_bound_ref, att_bound_q)
       if (isTRUE(cfg$diagnostics$save_csvs))
         write_diag_csv(att_bound, cfg, out_dir,
-          cfg$diagnostics$att_outcome_bound_sensitivity_csv %||% "att_tail_perturbation_diagnostic.csv")
+                       cfg$diagnostics$att_outcome_bound_sensitivity_csv %||% "att_tail_perturbation_diagnostic.csv")
     } else {
       msg("  [diag] Outcome-bound sensitivity skipped (binary outcome).", cfg = cfg)
     }
-
+    
     msg("  [diag] ATT-specific diagnostics written (per-fold, cluster influence, leave-out, decomposition, EIF, control ESS, pi calibration, g/pi clip sweep, tail perturbation).", cfg = cfg)
   }
-
+  
   # ---- Run manifest --------------------------------------------------------
   # One per-outcome, per-fold design-verification table: did each fold respect
   # the cap, keep adequate support, and did the run pass its global ATT checks.
@@ -2278,7 +3028,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       write_diag_csv(man, cfg, out_dir, cfg$diagnostics$run_manifest_csv %||% "run_manifest.csv")
     msg("  [diag] Run manifest written (per-fold cap/support + global ATT checks).", cfg = cfg)
   }
-
+  
   # ---- Balance diagnostics and Love plots ----------------------------------
   if (!is.null(tmle_fit)) {
     msg("  [diag] Computing numeric and categorical balance diagnostics...", cfg = cfg)
@@ -2289,7 +3039,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     iptw <- ifelse(A == 1L, 1 / tmle_fit$gn, 1 / (1 - tmle_fit$gn))
     treat_post_w <- w * iptw
     balance_priority <- unique(c(
-      cfg$final_tmle$protected_W %||% character(0),
+      resolve_protected_W(cfg),
       unlist(tmle_fit$selected_by_fold %||% list(), use.names = FALSE)))
     bal_A <- make_balance_table(main_df, cfg, A, treat_post_w, "A=1_vs_A=0",
                                 priority_vars = balance_priority)
@@ -2300,7 +3050,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       lev_A <- attr(bal_A, "factor_level_balance")
       if (!is.null(lev_A) && nrow(lev_A))
         write_diag_csv(lev_A, cfg, out_dir,
-          cfg$diagnostics$balance_factor_levels_treatment_csv %||% "balance_factor_levels_treatment.csv")
+                       cfg$diagnostics$balance_factor_levels_treatment_csv %||% "balance_factor_levels_treatment.csv")
     }
     if (isTRUE(cfg$diagnostics$save_plots) && nrow(bal_A) > 0L) {
       plot_love(bal_A, build_unique_diag_path(cfg, out_dir, "love_plot_treatment.png"), "Treatment balance: pre vs post propensity weighting", n_top = cfg$diagnostics$max_love_plot_variables %||% 30L)
@@ -2328,17 +3078,17 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
                     n_keep_bal, length(A), tlo, thi), cfg = cfg)
         if (isTRUE(cfg$diagnostics$save_csvs)) {
           write_diag_csv(bal_A_trim, cfg, out_dir,
-            cfg$diagnostics$balance_treatment_trimmed_csv %||% "balance_treatment_trimmed_loveplot_data.csv")
+                         cfg$diagnostics$balance_treatment_trimmed_csv %||% "balance_treatment_trimmed_loveplot_data.csv")
           lev_trim <- attr(bal_A_trim, "factor_level_balance")
           if (!is.null(lev_trim) && nrow(lev_trim))
             write_diag_csv(lev_trim, cfg, out_dir,
-              cfg$diagnostics$balance_factor_levels_trimmed_csv %||% "balance_factor_levels_treatment_trimmed.csv")
+                           cfg$diagnostics$balance_factor_levels_trimmed_csv %||% "balance_factor_levels_treatment_trimmed.csv")
         }
         if (isTRUE(cfg$diagnostics$save_plots) && nrow(bal_A_trim) > 0L) {
           plot_love(bal_A_trim,
-            build_unique_diag_path(cfg, out_dir, "love_plot_treatment_trimmed.png"),
-            "Treatment balance (overlap-trimmed): pre vs post weighting",
-            n_top = cfg$diagnostics$max_love_plot_variables %||% 30L)
+                    build_unique_diag_path(cfg, out_dir, "love_plot_treatment_trimmed.png"),
+                    "Treatment balance (overlap-trimmed): pre vs post weighting",
+                    n_top = cfg$diagnostics$max_love_plot_variables %||% 30L)
         }
       } else {
         msg("  [diag] Trimmed-sample balance skipped: too few rows or no treatment variation in band.", cfg = cfg)
@@ -2363,29 +3113,29 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
         msg("  [diag] ATT-weighted treatment balance computed (treated w=1, controls w=g/(1-g)).", cfg = cfg)
         if (isTRUE(cfg$diagnostics$save_csvs)) {
           write_diag_csv(bal_A_att, cfg, out_dir,
-            cfg$diagnostics$balance_treatment_att_csv %||% "balance_treatment_att_loveplot_data.csv")
+                         cfg$diagnostics$balance_treatment_att_csv %||% "balance_treatment_att_loveplot_data.csv")
           all_att <- attr(bal_A_att, "all_candidate_balance_scan")
           if (!is.null(all_att) && nrow(all_att)) write_diag_csv(all_att, cfg, out_dir,
-            cfg$diagnostics$balance_treatment_att_all_candidates_csv %||% "balance_treatment_att_all_candidates.csv")
+                                                                 cfg$diagnostics$balance_treatment_att_all_candidates_csv %||% "balance_treatment_att_all_candidates.csv")
           lev_att <- attr(bal_A_att, "factor_level_balance")
           if (!is.null(lev_att) && nrow(lev_att))
             write_diag_csv(lev_att, cfg, out_dir,
-              cfg$diagnostics$balance_factor_levels_att_csv %||% "balance_factor_levels_treatment_att.csv")
+                           cfg$diagnostics$balance_factor_levels_att_csv %||% "balance_factor_levels_treatment_att.csv")
         }
         core_bal <- build_protected_h1fs_balance(main_df, cfg, A, w, att_bal_w)
         if (nrow(core_bal) > 0L) {
           if (isTRUE(cfg$diagnostics$save_csvs))
             write_diag_csv(core_bal, cfg, out_dir,
-              cfg$diagnostics$core_balance_csv %||% "protected_h1fs_att_balance.csv")
+                           cfg$diagnostics$core_balance_csv %||% "protected_h1fs_att_balance.csv")
           if (any(core_bal$exceeds_0_10, na.rm = TRUE))
-            warning(sprintf("%d of %d protected Wave I Feelings Scale items have post-ATT |SMD| > 0.10; inspect the protected balance audit.",
+            warning(sprintf("%d of %d baseline-depression measures have post-ATT value/missingness |SMD| > 0.10; inspect the fixed-variable balance audit.",
                             sum(core_bal$exceeds_0_10, na.rm = TRUE), nrow(core_bal)), call. = FALSE)
         }
         if (isTRUE(cfg$diagnostics$save_plots) && nrow(bal_A_att) > 0L) {
           plot_love(bal_A_att,
-            build_unique_diag_path(cfg, out_dir, "love_plot_treatment_att.png"),
-            "Treatment balance (ATT-weighted): pre vs post weighting",
-            n_top = cfg$diagnostics$max_love_plot_variables %||% 30L)
+                    build_unique_diag_path(cfg, out_dir, "love_plot_treatment_att.png"),
+                    "Treatment balance (ATT-weighted): pre vs post weighting",
+                    n_top = cfg$diagnostics$max_love_plot_variables %||% 30L)
         }
       }
       # ATT positivity / control-weight diagnostic: distribution of the control
@@ -2413,7 +3163,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
                   max(ctrl_odds), 100 * mean(ctrl_odds > 10)), cfg = cfg)
       if (isTRUE(cfg$diagnostics$save_csvs)) {
         write_diag_csv(att_pos, cfg, out_dir,
-          cfg$diagnostics$att_positivity_csv %||% "att_positivity_control_weights.csv")
+                       cfg$diagnostics$att_positivity_csv %||% "att_positivity_control_weights.csv")
       }
     }
     pi_for_delta <- pmin(pmax(tmle_fit$pi_AW, cfg$final_tmle$pi_lower), cfg$final_tmle$pi_upper)
@@ -2428,14 +3178,14 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
         lev_D <- attr(bal_D, "factor_level_balance")
         if (!is.null(lev_D) && nrow(lev_D))
           write_diag_csv(lev_D, cfg, out_dir,
-            cfg$diagnostics$balance_factor_levels_missingness_csv %||% "balance_factor_levels_missingness.csv")
+                         cfg$diagnostics$balance_factor_levels_missingness_csv %||% "balance_factor_levels_missingness.csv")
       }
       if (isTRUE(cfg$diagnostics$save_plots) && nrow(bal_D) > 0L) {
         plot_love(bal_D, build_unique_diag_path(cfg, out_dir, "love_plot_missingness.png"), "Outcome-observation balance: pre vs post censoring weighting", n_top = cfg$diagnostics$max_love_plot_variables %||% 30L)
       }
     }
   }
-
+  
   # ---- Positivity / overlap diagnostics ------------------------------------
   if (!is.null(tmle_fit)) {
     g <- tmle_fit$gn
@@ -2464,7 +3214,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       dev.off()
     }
   }
-
+  
   # ---- Cluster-level influence diagnostics ---------------------------------
   if (!is.null(tmle_fit) && !is.null(tmle_fit$cluster_eic)) {
     ce <- tmle_fit$cluster_eic
@@ -2525,7 +3275,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       dev.off()
     }
   }
-
+  
   # ---- Overlap product plot -------------------------------------------------
   if (!is.null(tmle_fit) && isTRUE(cfg$diagnostics$plot_overlap_product)) {
     op1 <- tmle_fit$gn * tmle_fit$pi_1W
@@ -2540,7 +3290,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     abline(v = thr, lty = 2)
     dev.off()
   }
-
+  
   # ---- Fold time and outcome distribution ----------------------------------
   if (!is.null(tmle_fit) && isTRUE(cfg$diagnostics$plot_fold_times)) {
     plot_path <- build_unique_diag_path(cfg, out_dir, "fold_times.png")
@@ -2561,7 +3311,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       dev.off()
     }
   }
-
+  
   # ---- Missing-not-at-random pattern-mixture sensitivity --------------------
   if (!is.null(tmle_fit) && isTRUE(cfg$diagnostics$save_csvs)) {
     if (isTRUE(cfg$diagnostics$enable_mnar_pattern_mixture %||% TRUE)) {
@@ -2571,9 +3321,64 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
                        cfg$diagnostics$mnar_pattern_mixture_csv %||%
                          "att_mnar_pattern_mixture.csv")
     }
-    # --- MNAR sensitivity extensions (v8.28) --------------------------------
+    # --- MNAR sensitivity helpers --------------------------------
     # Fixed-nuisance, no refit, estimand unchanged.  Each is wrapped in
     # run_optional() so that a failure here can never abort a completed run.
+    if (isTRUE(cfg$analysis$adaptive_g_truncation)) {
+      run_optional("adaptive g truncation selection", function() {
+        grid <- sort(unique(as.numeric(cfg$analysis$adaptive_g_truncation_grid)))
+        rows <- lapply(grid, function(gl) {
+          r <- estimate_joint_att_under_clips(
+            tmle_fit, cfg, g_lower = gl, g_upper = 1 - gl,
+            pi_lower = cfg$final_tmle$pi_lower %||% 0.025,
+            pi_upper = cfg$final_tmle$pi_upper %||% 0.999,
+            label = sprintf("adaptive_g_%.4f", gl))
+          data.frame(g_lower = gl, g_upper = 1 - gl,
+                     att = r$att_estimate, se = r$att_se,
+                     stringsAsFactors = FALSE)
+        })
+        tab <- do.call(rbind, rows)
+        ref <- tab$att[which.min(tab$g_lower)]
+        tab$difference_from_least_clipped <- tab$att - ref
+        tab$interpretation <- "Descriptive fixed-nuisance re-targeting; difference is not estimated bias; no automatic selection."
+        tab$applied_to_primary <- FALSE
+        write_diag_csv(tab, cfg, out_dir,
+                       cfg$diagnostics$adaptive_truncation_csv %||%
+                         "adaptive_truncation_selection.csv")
+        invisible(NULL)
+      })
+    }
+    if (isTRUE(cfg$diagnostics$enable_prognostic_balance %||% TRUE)) {
+      run_optional("prognostic score balance", function() {
+        z <- build_prognostic_score_balance(tmle_fit, cfg)
+        if (nrow(z)) write_diag_csv(z, cfg, out_dir,
+                                    cfg$diagnostics$prognostic_balance_csv %||%
+                                      "prognostic_score_balance.csv")
+        # export the score itself so a later specification can be scored
+        # against this FIXED reference instead of its own refitted surface.
+        zx <- build_prognostic_score_export(tmle_fit, cfg)
+        if (nrow(zx)) write_diag_csv(zx, cfg, out_dir,
+                                     cfg$diagnostics$prognostic_score_export_csv %||%
+                                       "prognostic_score_export.csv")
+        invisible(NULL)
+      })
+    }
+    if (isTRUE(cfg$diagnostics$enable_ovb_robustness %||% TRUE)) {
+      run_optional("fixed additive ATT bias sensitivity", function() {
+        z <- build_ovb_robustness_values(tmle_fit, cfg)
+        if (nrow(z)) write_diag_csv(z, cfg, out_dir,
+                                    cfg$diagnostics$ovb_robustness_csv %||% "att_additive_bias_sensitivity.csv")
+        invisible(NULL)
+      })
+    }
+    if (!is.null(tmle_fit$att_components$g_calibration_audit)) {
+      run_optional("outer-training nuisance calibration audit", function() {
+        write_diag_csv(tmle_fit$att_components$g_calibration_audit, cfg, out_dir,
+                       cfg$diagnostics$g_calibration_audit_csv %||%
+                         "g_calibration_audit.csv")
+        invisible(NULL)
+      })
+    }
     if (isTRUE(cfg$diagnostics$enable_mnar_breakdown %||% TRUE)) {
       run_optional("att MNAR breakdown point", function() {
         z <- build_att_mnar_breakdown(tmle_fit, cfg)
@@ -2605,13 +3410,13 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
       })
     }
   }
-
+  
   # ---- Approximate E-value --------------------------------------------------
   if (!is.null(tmle_fit) && isTRUE(cfg$diagnostics$save_csvs) &&
       isTRUE(cfg$diagnostics$enable_evalue %||% FALSE)) {
     ac <- tmle_fit$att_components
     if (is.null(ac)) stop("E-value diagnostic requires ATT components.", call. = FALSE)
-    evalue_weights <- ac$weights * ac$A * ac$delta_Y / ac$pi_AW
+    evalue_weights <- composite_observed_weights(ac)*ac$A
     ev <- make_evalue_approx(tmle_fit$result$estimate[1], tmle_fit$result$ci_lower[1],
                              tmle_fit$result$ci_upper[1], ac$Y_bounded_orig,
                              weights = evalue_weights, baseline_mean = ac$mu0_att)
@@ -2620,7 +3425,7 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
     write_diag_csv(ev_contour, cfg, out_dir,
                    cfg$diagnostics$evalue_contour_csv %||% "evalue_contour.csv")
   }
-
+  
   if (isTRUE(cfg$diagnostics$enable_wave2_completion_diagnostic %||% TRUE) &&
       !is.null(tmle_fit) && !is.null(w1_all)) {
     w2x <- run_optional("expanded_wave2_completion", function() {
@@ -2649,17 +3454,40 @@ run_peer_review_diagnostics <- function(cfg, main_df, prescreen_results = NULL,
         w2x$balance, "Wave2_CESD_complete_vs_incomplete_expanded",
         w2x$model$n[1L] %||% NA_integer_)
   }
-
+  
   if (length(balance_scan_timing_rows) && isTRUE(cfg$diagnostics$save_csvs))
     write_diag_csv(
       do.call(rbind, balance_scan_timing_rows), cfg, out_dir,
       cfg$diagnostics$balance_scan_timing_csv %||%
         "balance_scan_timings.csv")
+  
+  # --- TERMINAL STAGE: bootstrap positivity diagnostic ----------------
+  # Deliberately last. Every other diagnostic, and the headline result, is
+  # already written before this begins, so a failure or a time-budget stop here
+  # costs nothing that has not been saved. It is wrapped in run_optional, so an
+  # error is recorded in diagnostic_status.csv rather than ending the run.
+  if (isTRUE(cfg$diagnostics$enable_bootstrap_positivity_diagnostic %||% FALSE)) {
+    run_optional("bootstrap positivity diagnostic", function() {
+      bp <- run_bootstrap_positivity_diagnostic(tmle_fit, cfg)
+      if (!is.null(bp) && isTRUE(cfg$diagnostics$save_csvs)) {
+        if (nrow(bp$summary))
+          write_diag_csv(bp$summary, cfg, out_dir,
+                         cfg$diagnostics$bootstrap_positivity_csv %||%
+                           "att_bootstrap_positivity_diagnostic.csv")
+        if (nrow(bp$replicates))
+          write_diag_csv(bp$replicates, cfg, out_dir,
+                         cfg$diagnostics$bootstrap_positivity_replicate_csv %||%
+                           "att_bootstrap_positivity_replicates.csv")
+      }
+      invisible(NULL)
+    })
+  }
+  
   if (length(optional_status_rows) && isTRUE(cfg$diagnostics$save_csvs))
     write_diag_csv(
       do.call(rbind, optional_status_rows), cfg, out_dir,
       cfg$diagnostics$diagnostic_status_csv %||% "diagnostic_status.csv")
-
+  
   msg("===== Diagnostics complete. =====\n", cfg = cfg)
   invisible(sample_flow)
 }

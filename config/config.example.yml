@@ -1,17 +1,11 @@
-# Copy this file to config/config.yml (ignored by Git) and replace every path.
-# Relative paths are resolved from the config/ directory. Never commit the
-# completed local file because it reveals restricted-data locations.
-
+# Copy to config/config.yml and edit only in the approved workspace.
+# Relative paths resolve from config/. Never commit the completed local copy.
 global:
-  output_dir: "../runs"
+  output_dir: "../runs/v844_fresh_run"
   pipeline_seed: 1
   run_label: "p1"
-  verbose: true
-  save_stage_csvs: true
   autorun_pipeline: false
-  append_timestamp_to_outputs: false
   resume_mode: false
-
 stages:
   run_preflight_unit_test: true
   run_read_wave1_phase: true
@@ -19,9 +13,7 @@ stages:
   run_final_cv_tmle: true
   run_diagnostics: true
   run_multiseed_att: false
-
-# These are examples only. Supply paths inside the approved restricted-use
-# environment. The filenames match the production script's expected sources.
+  run_configured_sensitivities: false
 paths:
   wave1_inhome: "/restricted/AddHealth/Standard/Survey/W1/allwave1.xpt"
   birth_records: "/restricted/AddHealth/Standard/BirthRecords/brdw5.xpt"
@@ -38,17 +30,21 @@ paths:
   wave3_inhome: "/restricted/AddHealth/Standard/Survey/W3/wave3.xpt"
   wave4_inhome: "/restricted/AddHealth/Standard/Survey/W4/wave4.xpt"
   wave5_inhome: "/restricted/AddHealth/Standard/Survey/W5/wave5.xpt"
+  wave4_disposition: "/restricted/AddHealth/Standard/Disposition/dsp4.xpt"
   mortality: "/restricted/AddHealth/Standard/Surveillance/Ndi19i.xpt"
-
-# The public repository exposes only the verified primary specification.
+  verified_labor_status: null
+exposure:
+  exposure_mode: "wave2_only"
 outcome:
-  family: "Compensation"
+  family: "HoursWorked"
   family_member: null
   waves: 4
-  compensation_transform: "identity"
-  compensation_exact_only: false
-  continuous_upper_quantile: 0.995
-
+analysis:
+  restrict_wave1_depressed: false
+  protected_W_mode: "summary"
+  calibrate_g: true
+  g_calibration_method: "select"
+  calibrate_pi: false
 mortality_sensitivity:
   enabled: true
   composite_zero_at_death: true

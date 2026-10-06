@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 5654-5928.
-# Module role: Fold-pure final-W preprocessing.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 6) FINAL W PREPROCESSING HELPERS
 # =============================================================================
 # Plain-English role: these helpers learn preprocessing rules on each final
@@ -48,7 +43,7 @@ prep_numeric_train <- function(x, cfg_gp, cfg_pre, support = NULL, variable_name
   ux <- sort(unique(x_ok))
   is_binary <- length(ux) <= 2L && all(ux %in% c(0, 1))
   is_low_cardinality <- length(ux) <= (cfg_pre$factor_unique_threshold %||% 10L)
-  do_winsor <- !(is_indicator || is_binary || is_low_cardinality)
+  do_winsor <- !(is_indicator || is_binary || is_low_cardinality || identical(variable_name, "MHSum_W1"))
   if (is_indicator || is_binary) {
     return(list(mu = 0, s = 1, win_q = c(-Inf, Inf), fill = 0,
                 identity = TRUE, n_obs_original = n_obs, p_obs_original = p_obs))
@@ -92,7 +87,7 @@ prep_factor_train <- function(x, cfg_gp, cfg_pre, A = NULL,
                               preserve_substantive_levels = FALSE) {
   x_chr <- canonicalize_factor_text(x)
   is_na <- is.na(x_chr)
-
+  
   other_label   <- cfg_pre$factor_other_label   %||% "_Other_"
   missing_label <- cfg_pre$factor_missing_label %||% "Missing"
   skip_label    <- cfg_pre$factor_skip_label    %||% "Skip"
@@ -101,7 +96,7 @@ prep_factor_train <- function(x, cfg_gp, cfg_pre, A = NULL,
                              if (skip_present) skip_label else character(0),
                              other_label))
   x_chr[is_na] <- missing_label
-
+  
   tab <- table(x_chr, useNA = "no")
   if (length(tab) == 0L) {
     return(list(
@@ -114,13 +109,13 @@ prep_factor_train <- function(x, cfg_gp, cfg_pre, A = NULL,
       observed_substantive_levels = character(0)
     ))
   }
-
+  
   observed_substantive <- setdiff(unique(x_chr), special_levels)
   if (!isTRUE(preserve_substantive_levels)) {
     rare_levels <- names(tab)[tab < cfg_gp$rare_level_min_n &
                                 !(names(tab) %in% special_levels)]
     if (length(rare_levels)) x_chr[x_chr %in% rare_levels] <- other_label
-
+    
     min_exp <- cfg_gp$factor_min_exposed_per_level %||% 0L
     if (!is.null(A) && min_exp > 0L && length(A) == length(x_chr)) {
       A01 <- suppressWarnings(as.integer(A))
@@ -135,7 +130,7 @@ prep_factor_train <- function(x, cfg_gp, cfg_pre, A = NULL,
       ]
       if (length(low_exp_levels)) x_chr[x_chr %in% low_exp_levels] <- other_label
     }
-
+    
     current_levels <- unique(x_chr)
     if (length(current_levels) > cfg_gp$factor_max_levels_after_collapse) {
       ordinary_by_frequency <- setdiff(
@@ -147,14 +142,14 @@ prep_factor_train <- function(x, cfg_gp, cfg_pre, A = NULL,
       x_chr[!(x_chr %in% keep_levels)] <- other_label
     }
   }
-
+  
   # Deterministic ordering prevents fold-dependent reference categories caused
   # solely by row order. Protected H1FS variables retain every substantive
   # category observed in the training fold; unseen validation categories map
   # to _Other_ through the frozen recipe.
   final_levels <- deterministic_factor_levels(x_chr, special_levels)
   if (length(final_levels) < 2L) final_levels <- unique(c(final_levels, other_label))
-
+  
   list(
     levels = final_levels,
     other_label = other_label,
@@ -168,16 +163,16 @@ prep_factor_train <- function(x, cfg_gp, cfg_pre, A = NULL,
 
 apply_factor_transform <- function(x, prep) {
   x_chr <- canonicalize_factor_text(x)
-
+  
   levels_safe <- unique(c(
     prep$levels,
     prep$missing_label,
     prep$other_label
   ))
-
+  
   x_chr[is.na(x_chr)] <- prep$missing_label
   x_chr[!(x_chr %in% levels_safe)] <- prep$other_label
-
+  
   f <- factor(x_chr, levels = levels_safe)
   mm_full <- stats::model.matrix(
     ~ f,
@@ -198,7 +193,7 @@ apply_factor_transform <- function(x, prep) {
 
 # Build design matrix for a set of columns. Returns processed matrix and
 # a "group" id per column (all dummies for one factor share a group id).
-# v5: enforces a HARD stop at hard_max_processed_columns to prevent RAM
+# enforces a HARD stop at hard_max_processed_columns to prevent RAM
 # blowouts on the small-memory workstations used for this project.
 
 build_grouped_design_train <- function(df, cfg_gp, cfg_pre, hard_max_cols = NULL,

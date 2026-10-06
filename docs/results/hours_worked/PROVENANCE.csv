@@ -1,0 +1,16 @@
+field,value
+recorded_pipeline_version,v8.44_control_arm_Q_calselect_scope
+recorded_script_md5,446a956fa179aeec63994fa6fe280c37
+recorded_analysis_spec_md5,8a62aaab711533d6b4ac742a664556b7
+recorded_resolved_run_config_md5,b83234b918b1c27e82e50bd2976f2962
+recorded_pipeline_seed,1
+recorded_R_version,4.4.1
+recorded_package_versions,haven=2.5.4;dplyr=1.2.1;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+attached_source_name,addhealth_pipeline_v8_44(2).R
+attached_source_md5,c3430bac8050c5d7c7f2b781cbd0085c
+attached_source_sha256,90b499485a6b75d09ed95930aa4ffa26c33954147697aca49f25be4626b047ae
+attached_source_code_only_sha256,6ca03ffc674116201114b0833f31d34d6fca2392102496a645b0695d7cc90f97
+uploaded_source_match_status,not_byte_identical; exact producing source not supplied
+same_run_check,all 39 CSV headers have one Run ID and one script/analysis/run-config fingerprint
+outcome_definition,"mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR"
+release_status,external-hosting approval not supplied; candidates only

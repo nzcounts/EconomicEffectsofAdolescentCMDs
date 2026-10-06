@@ -1,14 +1,9 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 15066-15584.
-# Module role: Sensitivity-analysis runner.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 12) SENSITIVITY-ANALYSIS RUNNER WITH PROGRESS + RESUME
 # =============================================================================
 # Plain-English role: run an analyst-specified list of sensitivity-analysis
 # scenarios. After each scenario finishes, append its results to a shared
 # CSV and save a checkpoint. If the process is killed midway and restarted,
-# previously completed scenarios are skipped. Each scenario is specified by
+# already completed scenarios are skipped. Each scenario is specified by
 # a cfg-overlay (a partial list merged on top of the baseline cfg).
 
 merge_cfg_overlay <- function(base, overlay) {
@@ -77,11 +72,11 @@ default_sensitivity_scenarios <- function() {
     S3_tighter_g_pi = list(
       label = "Tighter symmetric g/pi clipping (0.05 / 0.95)",
       overlay = list(final_tmle = list(
-        g_lower = 0.05, g_upper = 0.95, pi_lower = 0.05, pi_upper = 0.95))),
+        g_lower_rule = "fixed", g_lower = 0.05, g_upper = 0.95, pi_lower = 0.05, pi_upper = 0.95))),
     S4_wider_g_pi = list(
       label = "Wider symmetric g/pi clipping (0.01 / 0.99)",
       overlay = list(final_tmle = list(
-        g_lower = 0.01, g_upper = 0.99, pi_lower = 0.01, pi_upper = 0.99))),
+        g_lower_rule = "fixed", g_lower = 0.01, g_upper = 0.99, pi_lower = 0.01, pi_upper = 0.99))),
     S6_alt_cutpoint_low = list(
       label = "Distinct exposure definition: depression cutpoint = 20 (vs 22)",
       overlay = list(
@@ -89,10 +84,23 @@ default_sensitivity_scenarios <- function() {
         analysis = list(
           expected_exposure_cutpoint = 20,
           enforce_expected_treated_gate = FALSE))),
+    # CES-D >=24 is an alternative threshold used by Rushton, Forcier
+    # and Schectman (2002, JAACAP 41:199-205). Together with cutoff 20 it brackets
+    # the primary 22 threshold. This changes the exposure and requires its own
+    # fit with the treated-count gate disabled.
+
+    S6b_alt_cutpoint_high = list(
+      label = "Distinct exposure definition: depression cutpoint = 24 (vs 22)",
+      overlay = list(
+        exposure = list(cutpoint = 24),
+        analysis = list(
+          expected_exposure_cutpoint = 24,
+          enforce_expected_treated_gate = FALSE))),
     S8_no_xgboost = list(
       label = "Final learner library without xgboost",
       overlay = list(learners = list(
-        Q = list(use_xgboost = FALSE, use_xgboost_rich = FALSE),
+        Q = list(use_xgboost = FALSE, use_xgboost_rich = FALSE,
+                 use_xgboost_control_arm = FALSE),
         g = list(use_xgboost = FALSE),
         pi = list(use_xgboost = FALSE)))),
     # S10: trimmed ATE promoted to PRIMARY estimand (distinct from the default
@@ -129,21 +137,19 @@ default_sensitivity_scenarios <- function() {
     S15_lasso_alpha_lasso = list(
       label = "LASSO screen alpha = 1.0 (pure LASSO)",
       overlay = list(final_tmle = list(lasso_screen_alpha = 1.0))),
-    # reviewer 2's tight symmetric propensity bounds, run as a
-    # sensitivity scenario rather than a default. pi_upper kept at 0.999 in
-    # the default; this scenario tests the fully symmetric [0.05, 0.95]
-    # variant for both g and pi.
-    # (point 5): the main spec now uses RAW sampling weights
-    # (weight_winsor_quantile = NULL), so the old S17 (winsor = NULL) merely
-    # duplicated main and S18's "vs q0.95" label was stale. Both are now real
-    # contrasts against the raw-weight main.
+    # Sampling-weight winsorization scenarios define distinct weighting
+    # targets relative to the raw-weight primary specification.
+    # These are full-refit sensitivity contrasts, not replacements chosen
+    # from their reported effects.
+
+
     S17_weight_winsor_95 = list(
       label = "Distinct target weighting: sampling-weight winsorization at q0.95 (vs raw weights)",
       overlay = list(analysis = list(weight_winsor_quantile = 0.95))),
     S18_weight_winsor_99 = list(
       label = "Distinct target weighting: sampling-weight winsorization at q0.99 (vs raw weights)",
       overlay = list(analysis = list(weight_winsor_quantile = 0.99))),
-    # (point 5): a TRUE full-refit earnings-cap sensitivity. Unlike the
+    # a TRUE full-refit earnings-cap sensitivity. Unlike the
     # post-hoc att_outcome_bound diagnostic (which holds the fitted nuisances
     # fixed), the sensitivity runner rebuilds the outcome, re-runs screening,
     # refits nuisances and recomputes the ATT under the alternative cap.
@@ -157,7 +163,7 @@ default_sensitivity_scenarios <- function() {
 }
 
 
-# (point 4): CURATED final sensitivity set for the paper -- ONLY the
+# CURATED final sensitivity set for the paper -- ONLY the
 # high-value checks, not the development sweeps. Use as:
 # run_sensitivity_analyses(cfg, scenarios = final_sensitivity_scenarios(
 # mh_block = c(<baseline MH var names>), negative_control_outcome = "<var>"))
@@ -227,10 +233,17 @@ final_sensitivity_scenarios <- function(mh_block = NULL,
       overlay = list(outcome = list(compensation_transform = "asinh",
                                     continuous_upper_quantile = 1.0))),
     F1f_no_mortality_composite = list(
-      label = "Outcome comparison without mortality-zero composite",
+      label = paste0(
+        "Estimand sensitivity: retain mortality linkage but do not assign ",
+        "mortality-composite zeros; deaths remain governed by the ordinary ",
+        "outcome-observation/censoring model"),
       overlay = list(mortality_sensitivity = list(
-        enabled = FALSE,
+        enabled = TRUE,
         composite_zero_at_death = FALSE))),
+    F2b_cutpoint_24 = list(
+      label="Distinct exposure estimand: Wave-II CES-D cutpoint 24",
+      overlay=list(exposure=list(cutpoint=24),analysis=list(
+        expected_exposure_cutpoint=24,enforce_expected_treated_gate=FALSE))),
     F2_cutpoint_20 = list(
       label = "Distinct exposure estimand: Wave-II CES-D cutpoint 20",
       overlay = list(
@@ -246,17 +259,18 @@ final_sensitivity_scenarios <- function(mh_block = NULL,
   # the propensity truncation, so vary g_lower/g_upper and re-report the headline.
   sc$F4_gbound_tight <- list(
     label = "Positivity: symmetric g/pi bounds [0.05, 0.95] (full pipeline refit)",
-    overlay = list(final_tmle = list(g_lower = 0.05, g_upper = 0.95, pi_lower = 0.05, pi_upper = 0.95)))
+    overlay = list(final_tmle = list(g_lower_rule = "fixed", g_lower = 0.05, g_upper = 0.95, pi_lower = 0.05, pi_upper = 0.95)))
   sc$F5_gbound_loose <- list(
     label = "Positivity: symmetric g/pi bounds [0.01, 0.99] (full pipeline refit)",
-    overlay = list(final_tmle = list(g_lower = 0.01, g_upper = 0.99, pi_lower = 0.01, pi_upper = 0.99)))
+    overlay = list(final_tmle = list(g_lower_rule = "fixed", g_lower = 0.01, g_upper = 0.99, pi_lower = 0.01, pi_upper = 0.99)))
   # Nuisance-model sensitivity: probe the double-robust remainder by dropping the
   # flexible tree learners, leaving a regularized-regression library (glmnet +
   # mean) for Q, g, and pi. Deep-merged, so other learner flags are preserved.
   sc$F6_regularized_learners <- list(
     label = "Nuisance sensitivity: mean-plus-glmnet library only for Q, g, and pi",
     overlay = list(learners = list(
-      Q  = list(use_ranger = FALSE, use_xgboost = FALSE, use_xgboost_rich = FALSE, use_gam = FALSE),
+      Q  = list(use_ranger = FALSE, use_xgboost = FALSE, use_xgboost_rich = FALSE, use_gam = FALSE,
+                use_ranger_control_arm = FALSE, use_xgboost_control_arm = FALSE),
       g  = list(use_ranger = FALSE, use_xgboost = FALSE, use_gam = FALSE),
       pi = list(use_ranger = FALSE, use_xgboost = FALSE, use_gam = FALSE))))
   # Screening-threshold sensitivity: vary the redundancy-cluster correlation
@@ -306,10 +320,24 @@ final_sensitivity_scenarios <- function(mh_block = NULL,
           enable_evalue = FALSE),
         safety = list(require_publication_ready_marker = FALSE)))
   }
-
+  
   sc
 }
 
+
+filter_sensitivity_scenarios_for_outcome <- function(cfg, scenarios) {
+  fam <- cfg$outcome$family %||% ""
+  drop_names <- character(0)
+  if (!identical(fam, "Compensation")) {
+    # These scenarios alter Compensation-specific measurement/transformation
+    # choices and are meaningless for binary LFP or fixed-support hours outcomes.
+    drop_names <- c(drop_names,
+                    "F1_bound_refit_q0990", "F1b_bound_refit_q1000",
+                    "F1c_exact_earnings_only", "F1d_log1p_earnings",
+                    "F1e_asinh_earnings")
+  }
+  scenarios[setdiff(names(scenarios), unique(drop_names))]
+}
 
 validate_sensitivity_scenarios <- function(scenarios, cfg, out_dir) {
   if (!is.list(scenarios) || !length(scenarios))
@@ -342,32 +370,109 @@ validate_sensitivity_scenarios <- function(scenarios, cfg, out_dir) {
   do.call(rbind, rows)
 }
 
+configuration_action_scenarios <- function() {
+  # Each scenario is a prespecified full refit. The base sample/seed/PSU folds
+  # are preserved for nuisance-only comparisons. No result is auto-promoted.
+  sc <- list(
+    D0_items = list(label = "Protect all 19 baseline items", overlay = list(analysis = list(protected_W_mode = "items"))),
+    D1_summary = list(label = "Protect baseline total; items remain screen-eligible", overlay = list(analysis = list(protected_W_mode = "summary"))),
+    D2_both = list(label = "Protect baseline items and total", overlay = list(analysis = list(protected_W_mode = "both"))),
+    D3_g_platt = list(label = "Survey-weighted outer-training Platt g calibration", overlay = list(analysis = list(calibrate_g = TRUE, g_calibration_method = "platt"))),
+    D4_g_isotonic = list(label = "Survey-weighted outer-training isotonic g calibration", overlay = list(analysis = list(calibrate_g = TRUE, g_calibration_method = "isotonic"))),
+    D5_pi_platt = list(label = "Survey-weighted outer-training Platt pi calibration", overlay = list(analysis = list(calibrate_pi = TRUE, pi_calibration_method = "platt"))),
+    D6_pi_isotonic = list(label = "Survey-weighted outer-training isotonic pi calibration", overlay = list(analysis = list(calibrate_pi = TRUE, pi_calibration_method = "isotonic"))),
+    D7_g_baseline_priority = list(label = "Additional g learner with protected-baseline penalty factors", overlay = list(learners = list(g = list(use_glmnet_h1fs = TRUE)))),
+    D8_pi_treatment = list(label = "Additional pi learner with unpenalized treatment term", overlay = list(learners = list(pi = list(use_glmnet_A_unpenalized = TRUE)))),
+    D9_status_composite = list(label = "Verified current civilian-resident labor-supply composite", overlay = list(analysis = list(dsp4_mode = "composite"))),
+    D10_status_exclusion = list(label = "Post-exposure-selected population: verified status exclusion", overlay = list(analysis = list(dsp4_mode = "exclude_sensitivity"))),
+    D11_wave3_complete_bridge = list(
+      label = "Bridge: primary exposure contrast among complete Wave-III Feelings Scale respondents",
+      overlay = list(exposure = list(exposure_mode = "wave3_complete"),
+                     policy = list(enable_att_prevalence_translation = FALSE))),
+    D12_durable_control = list(
+      label = "Secondary contrast: Wave-II positive vs negative at both Wave II and Wave III (post-exposure-selected comparison group)",
+      overlay = list(exposure = list(exposure_mode = "durable_control"),
+                     policy = list(enable_att_prevalence_translation = FALSE))),
+    D13_Q_control_arm = list(
+      label = "Outcome-model sensitivity: control-arm Q candidates added to the pooled library; forest offers A at every node",
+      overlay = list(learners = list(
+        Q = list(use_glmnet_control_arm = TRUE, use_ranger_control_arm = TRUE,
+                 use_xgboost_control_arm = TRUE),
+        ranger = list(always_split_A = TRUE))))
+  )
+  established <- final_sensitivity_scenarios()
+  c(sc, established[c("F0e_expanded_budget_richer_Q", "F1b_bound_refit_q1000",
+                      "F1c_exact_earnings_only", "F1f_no_mortality_composite", "F2_cutpoint_20", "F2b_cutpoint_24",
+                      "F4_gbound_tight", "F5_gbound_loose", "F6_regularized_learners")])
+}
+
+run_configured_sensitivities <- function(cfg) {
+  available <- configuration_action_scenarios()
+  requested <- cfg$global$sensitivity_actions
+  if (!is.character(requested) || !length(requested) || anyNA(requested) ||
+      anyDuplicated(requested) || any(!requested %in% names(available)))
+    stop("sensitivity_actions must name unique available configuration_action_scenarios().", call. = FALSE)
+  run_sensitivity_analyses(cfg, scenarios = available[requested],
+                           out_dir = file.path(cfg$global$output_dir, "configured_sensitivities"))
+}
+
+run_configured_analysis <- function(cfg) {
+  validate_cfg(cfg)
+  for (nm in c("run_multiseed_att", "run_configured_sensitivities")) {
+    z <- cfg$stages[[nm]] %||% FALSE
+    if (!is.logical(z) || length(z) != 1L || is.na(z))
+      stop("Stage switch must be one TRUE/FALSE: ", nm, call. = FALSE)
+  }
+  if (isTRUE(cfg$stages$run_configured_sensitivities)) {
+    choices <- cfg$global$sensitivity_actions
+    available <- configuration_action_scenarios()
+    if (!is.character(choices) || !length(choices) || anyNA(choices) ||
+        anyDuplicated(choices) || any(!choices %in% names(available)))
+      stop("Invalid sensitivity_actions; inspect names(configuration_action_scenarios()).", call. = FALSE)
+    validate_sensitivity_scenarios(available[choices], cfg,
+                                   file.path(cfg$global$output_dir, "configured_sensitivities"))
+  }
+  primary <- if (isTRUE(cfg$stages$run_multiseed_att))
+    run_multiseed_att(cfg, seeds = cfg$global$multiseed_seeds) else run_addhealth_pipeline(cfg)
+  sensitivity <- NULL
+  if (isTRUE(cfg$stages$run_configured_sensitivities)) {
+    sensitivity_cfg <- cfg
+    sensitivity_cfg$stages$run_preflight_unit_test <- FALSE # already passed above
+    sensitivity <- run_configured_sensitivities(sensitivity_cfg)
+  }
+  invisible(list(primary = primary, sensitivity = sensitivity))
+}
+
 run_sensitivity_analyses <- function(base_cfg,
                                      scenarios = default_sensitivity_scenarios(),
                                      out_dir = NULL) {
+  base_cfg <- apply_outcome_runtime_defaults(base_cfg)
   base_cfg <- ensure_run_id(base_cfg)
   validate_cfg(base_cfg)
+  scenarios <- filter_sensitivity_scenarios_for_outcome(base_cfg, scenarios)
+  if (!length(scenarios))
+    stop("No sensitivity scenarios remain after outcome-specific filtering.", call. = FALSE)
   load_required_packages(base_cfg)
   if (isTRUE(base_cfg$stages$run_preflight_unit_test))
     run_preflight_unit_test(base_cfg)
   base_cfg$stages$run_preflight_unit_test <- FALSE
   out_dir <- out_dir %||% base_cfg$global$output_dir
   ensure_output_dir(out_dir, cfg = base_cfg, test_write = TRUE)
-
+  
   aggregate_cfg <- base_cfg
   aggregate_cfg$global$output_dir <- out_dir
   aggregate_cfg$global$run_label <- "sensitivity"
   aggregate_cfg <- freeze_run_provenance(aggregate_cfg)
-
+  
   scenario_manifest <- validate_sensitivity_scenarios(scenarios, base_cfg, out_dir)
   message(sprintf("\n===== STAGE: Sensitivity analyses (%d scenarios) =====",
                   length(scenarios)))
   message(sprintf("  Output base directory: %s", out_dir))
-
-  manifest_path <- file.path(out_dir, "sensitivity_scenario_manifest.csv")
-  results_csv <- file.path(out_dir, "sensitivity_results.csv")
-  status_csv <- file.path(out_dir, "sensitivity_status.csv")
-  checkpoint <- file.path(out_dir, "sensitivity_checkpoint.rds")
+  
+  manifest_path <- file.path(out_dir, "sens_plan.csv")
+  results_csv <- file.path(out_dir, "sens.csv")
+  status_csv <- file.path(out_dir, "sens_status.csv")
+  checkpoint <- file.path(out_dir, "sens_ck.rds")
   sensitivity_sig <- list(
     version = base_cfg$global$version %||% "NA",
     script = get_frozen_source_fingerprint(aggregate_cfg),
@@ -379,7 +484,7 @@ run_sensitivity_analyses <- function(base_cfg,
     policy = base_cfg$policy, diagnostics = base_cfg$diagnostics,
     safety = base_cfg$safety, scenarios = scenarios,
     source_files = lapply(base_cfg$paths, file_fingerprint))
-
+  
   done <- character(0)
   result_blocks <- list()
   status_blocks <- list()
@@ -406,10 +511,10 @@ run_sensitivity_analyses <- function(base_cfg,
     message(sprintf("  [sensitivity] Resuming: %d scenarios already done.",
                     length(done)))
   }
-
+  
   if (!isTRUE(resume_compatible))
     assert_fresh_output_dir(out_dir, base_cfg)
-
+  
   aggregate_files <- c(manifest_path, results_csv, status_csv)
   existing_aggregate <- aggregate_files[file.exists(aggregate_files)]
   if (length(existing_aggregate) && !isTRUE(resume_compatible))
@@ -417,7 +522,7 @@ run_sensitivity_analyses <- function(base_cfg,
       "Sensitivity aggregate output(s) already exist without a compatible checkpoint: ",
       paste(basename(existing_aggregate), collapse = ", "),
       ". Use a fresh directory."), call. = FALSE)
-
+  
   # Commit an empty checkpoint before the first aggregate CSV. This makes a
   # crash after manifest creation resumable instead of leaving a manifest that
   # blocks the next invocation before any scenario has completed.
@@ -427,20 +532,20 @@ run_sensitivity_analyses <- function(base_cfg,
            aggregate_run_id = aggregate_cfg$global$run_id,
            done = done, results = result_blocks, status = status_blocks),
       checkpoint, overwrite = FALSE)
-
+  
   write_provenance_csv_at_path(
     scenario_manifest, aggregate_cfg, manifest_path,
-    "sensitivity_scenario_manifest.csv",
+    "sens_plan.csv",
     overwrite = isTRUE(resume_compatible) && file.exists(manifest_path))
   if (isTRUE(resume_compatible) && length(result_blocks))
     write_provenance_csv_at_path(
       do.call(rbind, result_blocks), aggregate_cfg, results_csv,
-      "sensitivity_results.csv", overwrite = file.exists(results_csv))
+      "sens.csv", overwrite = file.exists(results_csv))
   if (isTRUE(resume_compatible) && length(status_blocks))
     write_provenance_csv_at_path(
       do.call(rbind, status_blocks), aggregate_cfg, status_csv,
-      "sensitivity_status.csv", overwrite = file.exists(status_csv))
-
+      "sens_status.csv", overwrite = file.exists(status_csv))
+  
   for (nm in names(scenarios)) {
     if (nm %in% done) {
       message(sprintf("  [sensitivity] SKIP %s (already done).", nm))
@@ -457,7 +562,7 @@ run_sensitivity_analyses <- function(base_cfg,
       stop(sprintf(
         "Scenario '%s' requested dedicated nuisance learners that did not activate.",
         nm), call. = FALSE)
-
+    
     scenario_dir <- file.path(out_dir, paste0("sens_", nm))
     if (dir.exists(scenario_dir)) {
       archived_incomplete <- archive_existing_path(
@@ -475,7 +580,7 @@ run_sensitivity_analyses <- function(base_cfg,
     cfg_k$cache$use_cached_wave1 <- TRUE
     cfg_k$cache$use_cached_main_dataset <- TRUE
     validate_cfg(cfg_k)
-
+    
     scenario_error <- NA_character_
     r <- tryCatch(run_addhealth_pipeline(cfg_k), error = function(e) {
       scenario_error <<- conditionMessage(e)
@@ -500,25 +605,24 @@ run_sensitivity_analyses <- function(base_cfg,
         archived_partial_directory = archived,
         stringsAsFactors = FALSE)
     }
-
+    
     if (length(result_blocks))
       write_provenance_csv_at_path(
         do.call(rbind, result_blocks), aggregate_cfg, results_csv,
-        "sensitivity_results.csv", overwrite = file.exists(results_csv))
+        "sens.csv", overwrite = file.exists(results_csv))
     write_provenance_csv_at_path(
       do.call(rbind, status_blocks), aggregate_cfg, status_csv,
-      "sensitivity_status.csv", overwrite = file.exists(status_csv))
+      "sens_status.csv", overwrite = file.exists(status_csv))
     atomic_save_rds(
       list(sig = sensitivity_sig,
            aggregate_run_id = aggregate_cfg$global$run_id,
            done = done, results = result_blocks, status = status_blocks),
       checkpoint, overwrite = TRUE)
   }
-
+  
   verify_frozen_source_unchanged(aggregate_cfg)
   message("\n===== Sensitivity analyses complete =====")
   if (length(result_blocks)) do.call(rbind, result_blocks) else data.frame()
 }
 
 
-# =============================================================================

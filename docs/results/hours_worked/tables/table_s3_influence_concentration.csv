@@ -1,0 +1,8 @@
+metric,value
+G_nominal,132
+G_star_influence_concentration,26.4973553911951
+top1_variance_share,0.0831884307129075
+top5_variance_share,0.352418272067594
+top10_variance_share,0.542761011997538
+fixed_nuisance_loco_se,1.15761855113326
+multiplier_reps,2000

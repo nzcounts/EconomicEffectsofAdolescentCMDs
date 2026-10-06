@@ -1,26 +1,26 @@
-# Key data roles and provenance
+# Data dictionary
 
-This is a code-facing dictionary, not a substitute for the Add Health
-codebooks. Variable labels and permissible disclosures remain governed by the
-restricted-use documentation.
+| Role | Fields | Definition |
+|---|---|---|
+| Respondent ID | `AID` | Merge key; must never be published in diagnostics. |
+| Survey design | `GSWGT1`, `REGION`, `PSUSCID` | Wave-I weight, stratum and school PSU. |
+| Primary exposure | `H2FS1`–`H2FS19` | Complete Wave-II scale; reverse H2FS4/8/11/15; CES-D >=22. |
+| Protected baseline severity | `MHSum_W1` | Default protected representation derived from Wave-I Feelings Scale. |
+| Current hours | `H4LM6`, `H4LM11`, `H4LM12`, `H4LM13`, `H4LM19` | Route-specific qualifying work, job count and hours; one-job H4LM19 or multiple/unknown-job H4LM13; support 0–120. |
+| Participation | `H4LM6`, `H4LM11`, `H4LM14` | Supported Wave-IV questionnaire definition; not a BLS cross-sectional population estimate. |
+| Compensation | `H4EC2`, `H4EC3` | Exact annual amount or configured bracket midpoint, with the configured transform/cap. |
+| Education III | `H3ED1`, `H3ED2`, `H3ED3`, `H3ED5` | Nested high-school/some-college/college thresholds defined by the constructor. |
+| Education IV | `H4ED2` | Nested thresholds >=3, >=6 and >=7. |
+| Health | `H3GH1`, `H4GH1` | At least good health versus fair/poor. |
+| Mortality | `NDIDD19Y`, `NDIDD19M` | Dated death linkage; 997 or absent death month is unknown, not a valid month. |
+| Timing | `IYEAR4`, `IMONTH4` and wave-specific equivalents | Interview reference month; no-interview fallback uses the latest complete wave interview month. |
+| Wave-IV disposition | configured `wave4_disposition` input | Source for verified civilian/noninstitutional/nonresident status rules. |
 
-| Role | Variable(s) | Wave/source | Treatment in the pipeline |
-|---|---|---|---|
-| Respondent key | `AID` | All linked sources | Required complete and unique on master respondent data; malformed keys and unintended many-to-many joins stop the run. |
-| PSU / school cluster | `PSUSCID` (with approved aliases canonicalized) | Wave I design and school sources | Whole PSU retained within cross-fitting folds; used for survey variance. |
-| Geographic stratum | `REGION` | Wave I design sources | Canonicalized across merges; excluded from W; used for stratified survey inference. |
-| Sampling weight | `GSWGT1` | Wave I weights | Must be finite and positive. Raw weights define the primary target population; winsorization is sensitivity-only. |
-| Exposure items | `H2FS1`-`H2FS19` | Wave II in-home | Items 4, 8, 11, and 15 reverse-scored; codes 6/8/9 treated as nonresponse. |
-| Exposure | `Depressed` | Derived | One at CES-D sum >=22; zero otherwise; incomplete CES-D excluded. |
-| Protected baseline block | `H1FS1`-`H1FS19` | Wave I in-home | Mandatory in every final nuisance model and protected from ordinary screening/capping. |
-| Primary earnings exact value | `H4EC2` | Wave IV in-home | Valid 0-999995 used directly; documented exact missing codes excluded. |
-| Earnings bracket | `H4EC3` | Wave IV in-home | Valid categories mapped to configured midpoints only when an exact value is unavailable. |
-| Primary outcome | `Y` | Derived | Mortality-inclusive Wave IV compensation on the configured scale and upper bound. |
-| Outcome observation | `delta_Y` | Derived | One when `Y` is observed after the mortality composite; modeled as `pi(A,W)`. |
-| Mortality year | `NDIDD19Y` | NDI 2019 linkage | Defines death in the inclusive 1997-2007 window after explicit no-death and special-code handling. |
-| Wave IV interview year | `IYEAR4` | Wave IV in-home | Audit-only timing field; does not define the mortality window. |
-| Bedtime | `H1GH50` | Wave I in-home | Converted to `H1GH50__tsin` and `H1GH50__tcos`. |
+Same-interview-month death is not assumed to precede the observed outcome.
+Documented contribution zeros use their stated source evidence. Unknown positive
+contributions remain missing. No respondent-linked diagnostic table is supplied.
 
-The full candidate registry and missing-code dictionary are generated during a
-restricted run and are sensitive derived artifacts; they should not be
-committed. Disclosure-reviewed summaries may be documented separately.
+The missing-code dictionary uses exact source-informed codes and explicit
+overrides, not numeric suffix matching. The file source registry and candidate
+denylist prevent birth-record predictors/derivatives entering W. Source names and
+public examples are not respondent data.

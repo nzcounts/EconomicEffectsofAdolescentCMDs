@@ -1,0 +1,12 @@
+metric,value
+wave1_merged,20745
+complete_wave2_cesd,14660
+invalid_weight_dropped,1160
+final_analytic_n,13500
+treated_n,1342
+control_n,12158
+outcome_observed_n,11374
+outcome_missing_n,2126
+analytic_psu_n,132
+full_design_psu_n,132
+strata_n,4

@@ -22,5 +22,7 @@ source_addhealth_pipeline <- function(project_root = find_addhealth_project_root
   if (!length(modules))
     stop("No numbered R modules found in: ", module_dir, call. = FALSE)
   invisible(lapply(modules, sys.source, envir = envir, chdir = FALSE))
+  envir$cfg$global$pipeline_source_path <- normalizePath(
+    module_dir, winslash = "/", mustWork = TRUE)
   modules
 }

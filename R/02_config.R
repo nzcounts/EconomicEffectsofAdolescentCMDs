@@ -1,12 +1,7 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 178-1248.
-# Module role: Default analysis configuration.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 0) USER CONFIGURATION
 # =============================================================================
 cfg <- list(
-
+  
   # ---------------------------------------------------------------------------
   # Stage switches: turn individual stages on or off for reruns.
   # ---------------------------------------------------------------------------
@@ -16,48 +11,49 @@ cfg <- list(
     run_build_main_dataset_phase   = TRUE,
     run_final_cv_tmle              = TRUE,
     run_diagnostics                = TRUE,
-    # Multi-seed stability is run only after the headline configuration is
-    # locked. It multiplies runtime, so it is deliberately OFF for the first
-    # fresh headline run; enable it explicitly afterward.
-    run_multiseed_att              = FALSE
-  ),
+    # Repeated splitting reruns the full pipeline for each configured seed.
+    # Leave disabled for a single designated fit; require all seeds for aggregation.
 
+    run_multiseed_att              = FALSE,
+    run_configured_sensitivities   = FALSE
+  ),
+  
   # ---------------------------------------------------------------------------
   # Global controls: seed, verbosity, I/O.
   # ---------------------------------------------------------------------------
   global = list(
-    # Chosen fixed headline partition for the fresh final run. Multi-seed
-    # results are descriptive algorithmic-stability diagnostics only.
+    # Seed for the designated single-run partition. The optional repeated-split
+    # runner also reports an aggregated ATT and retains this seed as a comparator.
     pipeline_seed     = 1L,
     # Windows MAX_PATH is 260 chars. The run tag appears TWICE in every output
     # path (subdirectory + filename), so keep this root and run_label SHORT.
     # Override explicitly before run_addhealth_pipeline() if getwd() is deep.
-    output_dir        = file.path(getwd(), "runs", format(Sys.time(), "%Y%m%d_%H%M%S")),
+    output_dir        = file.path(getwd(), "Final_Code_Runs_Hours_9_18", format(Sys.time(), "%Y%m%d_%H%M%S")),
     # Auto-resolved when knitting/sourcing/RStudio succeeds. Set this explicitly
     # to the full .R or .Rmd path if your execution environment cannot resolve it.
     pipeline_source_path = .PIPELINE_SOURCE_PATH,
     require_script_md5 = TRUE,
     verbose           = TRUE,
-    save_stage_csvs   = TRUE,
+    save_stage_csvs   = TRUE, # required result/provenance audits for production
     autorun_pipeline  = FALSE,
     # version string participates in the multiseed checkpoint fingerprint.
     # BUMP THIS whenever you change analysis-relevant code, so a rerun in the
     # same output dir does not reuse stale per-seed results (or pass fresh=TRUE).
-    version           = "v8.28_final_production",
-    # Ten fixed partitions are the required algorithmic-stability set.
-    # Never choose a seed based on the resulting ATT; the designated seed above
-    # remains the inferential headline and the across-seed summary is descriptive.
-    multiseed_seeds   = c(20260402L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L),
-    multiseed_parallel_cores = 1L,   # >1 = run seeds in parallel, each in its own isolated subdir; 1 = sequential (default, unchanged behavior)
+    version           = "v8.44_control_arm_Q_calselect_scope",
+    # These partitions are used ONLY if run_multiseed_att is explicitly enabled.
+    # That optional runner reports a split-aggregated ATT; the designated seed
+    # remains a labeled comparator. Ordinary single-run behavior is unchanged.
+    multiseed_seeds   = c(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L),
+    multiseed_parallel_cores = 1L,   # >1 = run seeds in parallel, each in its own isolated subdir; 1 = sequential (sequential)
     multiseed_require_all_seeds = TRUE,   # TRUE (recommended for the final run) stops if any fixed seed fails, rather than aggregating only the successes
-    checkpoint_subdir = "checkpoints_cvtmle_v8_28_final_production",
-    # v6: a short label that tags every output file produced by this run.
-    # E.g. "health_w3_edu=college" produces files like
-    # "cv_tmle_results__health_w3_edu=college__<timestamp>.csv".
-    # Short by design: build_run_tag() embeds this in the output subdirectory
-    # AND in every filename, so each character costs two per path.
-    # Excluded from analysis_spec_md5 by strip_runtime_config_state(), so
-    # shortening it does NOT change the analysis fingerprint.
+    # Run only these named comparisons when the corresponding stage is TRUE.
+    # Available names: names(configuration_action_scenarios()).
+    sensitivity_actions = c("D1_summary"), # the primary items run is the reference
+    checkpoint_subdir = "ck_v844",
+    # Short label included in output names and run directories.
+    # The analysis fingerprint excludes this runtime naming label.
+
+
     run_label         = "p1",
     # One immutable identifier is generated at the start of a pipeline call
     # and reused by every result, diagnostic, manifest, and checkpoint path.
@@ -68,9 +64,25 @@ cfg <- list(
     append_timestamp_to_outputs = FALSE,
     # FALSE for every new primary/sensitivity run. Set TRUE only for an
     # explicitly validated checkpoint-resume operation.
-    resume_mode = FALSE
+    resume_mode = FALSE,
+    # Compact output naming is ON by default. Provenance remains in CSV headers,
+    # manifests, hashes, and RDS configuration objects; filenames no longer need
+    # to carry long descriptive stems.
+    short_file_names = TRUE,
+    max_output_stem_chars = 16L,
+    family_tag_map = c(
+      Compensation = "earn",
+      LaborForceParticipation = "lfp",
+      HoursWorked = "hrs",
+      UsualHours = "hrs_legacy",
+      EducationalAttainment = "edu",
+      HealthStatus = "health",
+      MentalHealth = "mh",
+      SubstanceUse = "sub",
+      PassThrough = "pt"
+    )
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Frozen production software environment. Exact versions are checked after
   # the enabled package set is resolved and before any data are read.
@@ -85,7 +97,7 @@ cfg <- list(
       ranger = "0.16.0", xgboost = "1.7.8.1", Matrix = "1.7.4"
     )
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Cache controls.
   # ---------------------------------------------------------------------------
@@ -93,21 +105,21 @@ cfg <- list(
     use_cached_wave1        = FALSE,
     use_cached_main_dataset = FALSE,
     save_intermediate_rds   = TRUE,
-    wave1_rds               = "wave1_merged_v8_24_final_run_corrected.rds",
-    main_dataset_rds        = "main_dataset_v8_24_final_run_corrected_production.rds",
+    wave1_rds               = "w1.rds",
+    main_dataset_rds        = "main.rds",
     # cache the main dataset with a fingerprint so a cached RDS is
     # never reused after changing the outcome family/wave, exposure cutpoint,
     # source paths, or key preprocessing settings.
     use_main_dataset_fingerprint = TRUE,
     use_wave1_fingerprint = TRUE
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Analysis roles (variable names after dataset build).
   # ---------------------------------------------------------------------------
   analysis = list(
     exposure_var         = "Depressed",
-    outcome_var          = "Y",            # v6: generic name, populated by outcome family constructor
+    outcome_var          = "Y",            # generic name, populated by outcome family constructor
     exposure_type        = "auto",
     outcome_type         = "auto",
     id_var               = "AID",
@@ -115,9 +127,72 @@ cfg <- list(
     strata_var           = "REGION",
     weight_var           = "GSWGT1",
     outcome_observed_var = "delta_Y",
+    # Configuration switches for analysis scope, baseline adjustment,
+    # probability calibration, and descriptive sensitivity checks.
+
+
+    # [1] Wave-I subsample. FALSE = full analytic sample. Integrity counts are
+    # checked upstream before restricting the final survey analysis domain.
+    restrict_wave1_depressed = FALSE,
+    wave1_depression_cutpoint = 22,
+    
+    # Baseline-depression protection: items forces H1FS1-19 into the nuisances;
+    # summary protects MHSum_W1 while leaving items screen-eligible; both protects
+    # both representations. Protected columns are additional to the optional
+    # processed-column budget. Evaluate alternatives with held-out loss and balance.
+
+
+    protected_W_mode = "summary",
+    
+    # [3] Optional probability calibration of the propensity score.
+    #     Prespecified comparison: calibrated and uncalibrated g are both
+    #     re-targeted under the primary bounds in the existing clip table.
+    #     Slope >1 means compressed predictions; calibration de-compresses them,
+    #     which can widen weight tails -- recheck att_positivity_control_weights.
+    calibrate_g = TRUE,
+    # select chooses among g_calibration_candidates within each outer training
+    # fold using survey-weighted inner whole-PSU cross-validated log loss.
+    # The default candidates are identity and Platt; isotonic is an explicit option.
+    # Selection uses no outcome, outer-validation label, or effect estimate.
+    g_calibration_method = "select", # "select", "platt" or "isotonic"
+    # Maps compared when the method is "select" (first-listed wins exact ties).
+    g_calibration_candidates = c("identity", "platt"),
+    pi_calibration_candidates = c("identity", "platt"),
+    calibrate_pi = FALSE,
+    pi_calibration_method = "platt",
+    # Calibration is fitted within EACH outer training fold using inner
+    # out-of-fold base predictions and survey weights; never validation labels.
+    
+    # Descriptive g clipping comparison: retarget under each configured bound.
+    # Do not select bounds using the resulting ATT or SE. Differences do not
+    # identify causal bias or MSE. The adaptive_g_truncation_apply switch is rejected.
+
+
+    adaptive_g_truncation = FALSE,
+    adaptive_g_truncation_apply = FALSE,
+    adaptive_g_truncation_grid = c(0.005, 0.01, 0.025, 0.05),
+    
+    # [5] Wave-IV military/prison contribution zeros use documented interview
+    #     or final field status. Set auto_military_prison_status=FALSE to use a
+    #     separately adjudicated CSV instead. Ordinary nonresponse is not zero.
+    #     Deaths use the dated mortality composite only; annual earnings are excluded.
+    dsp4_mode = "auto_verified",
+    dsp4_structural_zero_families = c("HoursWorked", "LaborForceParticipation"),
+    dsp4_structural_zero_codes = c(477L, 478L, 613L, 486L, 482L),
+    # Data-integrity gate on composite status masking (see apply_verified_labor_status).
+    max_status_masked_fraction = 0.10,
+    status_mask_gate_min_nonzero = 500L,
+    enable_dsp4_audit = TRUE,
+    
+    # [6] Diagnostic variable set for the baseline-depression balance table.
+    #     Decoupled from protected_W so the diagnostic survives [2] unchanged.
+    h1fs_balance_vars = c(paste0("H1FS", 1:19), "MHSum_W1"),
+    
     # Production integrity gates for the verified Wave-II CES-D / Wave-IV
     # Compensation analysis. Preflight disables these because it uses synthetic
     # data. A mismatch stops the run before any causal modeling.
+    # Expected-n gates apply to the unrestricted valid-weight completer cohort
+    # before optional analysis-domain restrictions, not to the subgroup size.
     enforce_expected_sample_gates = TRUE,
     # The complete-CES-D, final-n, PSU, and stratum gates remain active in every
     # primary and sensitivity run. The exposure-cutpoint and treated-count
@@ -154,25 +229,24 @@ cfg <- list(
     # unparseable values become NA and are handled by the missingness
     # machinery. Set transform_time_variables = FALSE to disable.
     transform_time_variables = TRUE,
-    extra_exclude_from_candidates = c("IMONTH","IDAY","IYEAR","SCID","SSCID","COMMID","MACNO","INTID","VERSION","CORE1","CORE2","DISABLE","HIEDBLK","CUBAN","PRICAN","CHINESE","SMP01","SMP02","SMP03","SMP04","SMP05","SMP06","SMP07","SMP08","SMP09","SMP10","SMP11","SMP12","AH_RAW","INHOME","TWINONLY","SCHADMW1","INSCHOOL","SCHADMW2","N_ROSTER","N_INSCHL","GRADES","SAT_SCHL","COMMENTS","SCHMONTH","SCHDAY","SCHYEAR","STRATA","SQID","SSCHLCDE","AMONTH","ADAY","AYEAR","H1HR4I", "H1HR4L", "H1HR6L", "H1HR4M", "H1HR4N", "H1HR6N", "H1HR4O", "H1HR6O", "H1HR11O", "H1HR4P", "H1HR5P", "H1HR6P", "H1HR11P", "H1HR4Q", "H1HR5Q", "H1HR6Q", "H1HR11Q","H1HR4R", "H1HR5R", "H1HR6R", "H1HR11R", "H1HR4S", "H1HR5S", "H1HR6S", "H1HR11S", "H1HR4T", "H1HR5T", "H1HR6T", "H1HR11T", "H1RI22R1")
+    extra_exclude_from_candidates = c(".labor_status_zero", ".labor_status_verified", ".labor_status_reason", "IMONTH","IDAY","IYEAR","SCID","SSCID","COMMID","MACNO","INTID","VERSION","CORE1","CORE2","DISABLE","HIEDBLK","CUBAN","PRICAN","CHINESE","SMP01","SMP02","SMP03","SMP04","SMP05","SMP06","SMP07","SMP08","SMP09","SMP10","SMP11","SMP12","AH_RAW","INHOME","TWINONLY","SCHADMW1","INSCHOOL","SCHADMW2","N_ROSTER","N_INSCHL","GRADES","SAT_SCHL","COMMENTS","SCHMONTH","SCHDAY","SCHYEAR","STRATA","SQID","SSCHLCDE","AMONTH","ADAY","AYEAR","H1HR4I", "H1HR4L", "H1HR6L", "H1HR4M", "H1HR4N", "H1HR6N", "H1HR4O", "H1HR6O", "H1HR11O", "H1HR4P", "H1HR5P", "H1HR6P", "H1HR11P", "H1HR4Q", "H1HR5Q", "H1HR6Q", "H1HR11Q","H1HR4R", "H1HR5R", "H1HR6R", "H1HR11R", "H1HR4S", "H1HR5S", "H1HR6S", "H1HR11S", "H1HR4T", "H1HR5T", "H1HR6T", "H1HR11T", "H1RI22R1")
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Causal-variable governance.
   # ---------------------------------------------------------------------------
-  # The source registry is descriptive only. It never acts as an allowlist and
-  # never determines whether a Wave-I field may enter screening. Candidate
-  # eligibility is controlled only by suffix-safe analysis-role exclusions and
-  # the ordinary preprocessing/screening pipeline. H1FS1-H1FS19 remain the
-  # protected baseline-depression block; optional additional mandatory fields
-  # can be named directly without theory-role or codebook-approval gates.
+  # The registry is not an allowlist: unregistered otherwise eligible W remain
+  # candidates. It additionally enforces the explicit SOURCE DENYLIST below,
+  # including registered descendants and missingness representations. The
+  # existing protected_W_mode determines the baseline-depression protection.
   causal_governance = list(
+    excluded_candidate_sources = "birth_records",
     additional_mandatory_W = character(0),
     candidate_alias_audit_csv = "candidate_alias_audit.csv",
     mandatory_W_canonicalization_audit_csv = "mandatory_W_canonicalization_audit.csv",
     variable_source_registry_csv = "variable_source_registry.csv"
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Data source paths.
   # ---------------------------------------------------------------------------
@@ -192,6 +266,8 @@ cfg <- list(
     wave3_inhome    = NA_character_,
     wave4_inhome    = NA_character_,
     wave5_inhome    = NA_character_,
+    wave4_disposition = NA_character_,
+    verified_labor_status = NULL, # adjudicated CSV; required for status recoding
     # Fixed restricted-use NDI 2019 linkage path for the primary analysis.
     mortality       = NA_character_
   ),
@@ -204,31 +280,40 @@ cfg <- list(
     nonresponse_codes     = c(6, 8, 9),
     cutpoint              = 22,
     drop_missing_exposure = TRUE,
-    drop_from_candidates  = c("MHSum", paste0("H2FS", 1:19))
-  ),
+    # Exposure scope preserves the Wave-II indicator and restricts the cohort
+    # after full-cohort integrity checks. wave2_only retains the primary cohort.
+    # wave3_complete requires the Wave-III nine-item scale. durable_control retains
+    # Wave-II positives and controls negative at both waves; incomplete scales and
+    # Wave-III-only positives are excluded. durable_control conditions controls on
+    # a post-exposure measure and requires disabling prevalence-based translation.
+    # Confirm Wave-III fields and reserve codes against the restricted codebook.
 
-  # ---------------------------------------------------------------------------
-  # OUTCOME FAMILY SYSTEM (v6)
-  # ---------------------------------------------------------------------------
-  # - `family` : one of the seven outcome families.
-  # - `family_member` : for families with multiple nested binary thresholds
-  # (EducationalAttainment, HealthStatus), which
-  # threshold to use. NULL for single-outcome families.
-  # - `waves` : integer vector of waves to run (subset of 1..4),
-  # or the string "all" for all four.
-  # - `families` : per-family configuration, including per-wave source
-  # variable names and threshold definitions.
-  # ---------------------------------------------------------------------------
+
+    exposure_mode = "wave2_only",
+    wave3_cesd_items = paste0("H3SP", 5:13),
+    wave3_cesd_reverse_items = c("H3SP7", "H3SP11"),
+    wave3_cesd_missing_codes = c(6, 8, 9),
+    wave3_cesd_cutpoint = 12,
+    drop_from_candidates  = c("MHSum", paste0("H2FS", 1:19), paste0("H3SP", 5:13))
+  ),
+  
+  # Outcome configuration: family selects the constructor; family_member
+  # selects a nested education/health threshold; waves selects supported waves.
+  # Education and health support III/IV; earnings, participation, and hours
+  # support IV. all expands only to waves supported by the chosen family.
+  # The families mapping supplies source fields and threshold rules.
+
+
   outcome = list(
-    family        = "Compensation",  # primary toggle: select the outcome family
+    family        = "HoursWorked",  # primary toggle: select the outcome family
     family_member = NULL,            # used only for nested-binary families
     waves         = 4L,              # integer, integer vector, or "all"
     # hard stop if the selected outcome constructor is still a
     # placeholder and returns all missing values.
     stop_on_all_missing_outcome = TRUE,
-
+    
     # Shared transform controls (used by families that produce a continuous Y)
-    log_transform              = FALSE,  # legacy compatibility; keep FALSE
+    log_transform              = FALSE,  # compatibility setting; keep FALSE
     compensation_transform     = "identity", # identity, log1p, or asinh
     compensation_asinh_scale   = 1000,
     compensation_exact_only    = FALSE,
@@ -241,72 +326,180 @@ cfg <- list(
     continuous_cap_qrule       = "hf8",
     continuous_bound_eps       = 0,
     drop_from_candidates       = character(0),   # family constructors may add to this
-
+    
     # Family definitions (per-wave source variables and any recoding maps)
     families = list(
-
+      
       # ----- Educational Attainment -----
-      # Nested binary outcomes at four thresholds.
-      # PLACEHOLDER: fill in wave-specific source variable names below.
+      # Three nested binary outcomes. All three are designated primary because
+      # the paper emphasizes effect magnitude across the attainment distribution;
+      # no multiplicity correction is imposed by this program.
       EducationalAttainment = list(
         type    = "binary_nested",
         members = list(
-          at_least_hs           = list(label = "At least HS graduation"),
-          at_least_some_college = list(label = "At least some college"),
-          at_least_college_grad = list(label = "At least college graduation"),
-          some_grad_school      = list(label = "Some graduate school")
+          at_least_hs           = list(label = "At least HS graduation", primary = TRUE),
+          at_least_some_college = list(label = "At least some college", primary = TRUE),
+          at_least_college_grad = list(label = "At least college graduation", primary = TRUE)
         ),
-        # Per-wave source variables for outcome waves 3, 4, 5.
-        # PLACEHOLDER: replace with the correct Add Health item names.
+        # Wave III uses member-specific evidence. The constructor enforces
+        # nesting: verified higher attainment establishes every lower threshold.
+        # Wave IV uses the single H4ED2 attainment code.
         sources = list(
-          "3" = "H3ED1",   # example; replace with correct item
-          "4" = "H4ED2",   # example; replace with correct item
-          "5" = "H5ED1"    # example; PLACEHOLDER for Wave 5
+          "3" = c(highest_grade = "H3ED1",
+                  high_school_equivalency = "H3ED2",
+                  high_school_diploma = "H3ED3",
+                  college_graduate = "H3ED5"),
+          "4" = "H4ED2"
         ),
         # per-wave drop list. Each wave's outcome source is excluded
         # from W only when that wave is the outcome wave; other waves'
         # source vars remain available as confounders.
         drop_from_candidates_by_wave = list(
-          "3" = "H3ED1",
-          "4" = "H4ED2",
-          "5" = "H5ED1"
+          "3" = c("H3ED1", "H3ED2", "H3ED3", "H3ED5"),
+          "4" = "H4ED2"
         ),
-        # Constructor: see construct_outcome_educational_attainment below.
+        report_ratio_translations = TRUE,
         drop_from_candidates = character(0)
       ),
+      
+      # Wave-IV participation uses H4LM6/H4LM11/H4LM14.
+      # The Wave-III mapping is hard-blocked by validation and construction because
+      # it is not harmonized to the supported participation definition.
 
-      # ----- Labor Force Participation -----
-      # Binary: currently working (for pay) vs not.
+
       LaborForceParticipation = list(
         type    = "binary_single",
         members = NULL,
+        report_ratio_translations = TRUE,
+        definition_by_wave = c(
+          `3` = "employment_10plus_proxy",
+          `4` = "employment_10plus_or_temporarily_absent_or_unemployed_looking_proxy"
+        ),
         sources = list(
-          "3" = "H3EC1",   # example; replace with correct item
-          "4" = "H4EC1",   # example; replace with correct item
-          "5" = "H5EC1"    # example; PLACEHOLDER for Wave 5
+          "3" = NULL,
+          "4" = c(first_job_current = "H4LM6",
+                  current_work = "H4LM11",
+                  current_status = "H4LM14")
+        ),
+        wave3_codes = list(
+          work_yes = 1L,
+          work_no = 0L,
+          missing = 7L
+        ),
+        wave4_codes = list(
+          first_job_yes = 1L,
+          current_work_yes = 1L,
+          current_work_no = 0L,
+          in_labor_force_status = c(1L, 2L, 3L, 5L),
+          out_labor_force_status = c(4L, 6L, 7L, 8L, 9L),
+          unresolved_status = 10L,
+          lm6_missing = c(6L, 7L),
+          lm11_missing = c(5L, 6L, 7L),
+          lm14_missing = c(95L, 96L, 97L)
         ),
         drop_from_candidates_by_wave = list(
-          "3" = "H3EC1", "4" = "H4EC1", "5" = "H5EC1"
+          "3" = character(0),
+          "4" = c("H4LM6", "H4LM11", "H4LM14"),
+          "5" = character(0)
         ),
         drop_from_candidates = character(0)
       ),
+      
+      # Wave-IV unconditional current weekly hours: established nonworkers
+      # receive zero; multiple-job totals use H4LM13 and one-job hours use H4LM19.
+      # The outcome is capped at 120 hours. Wave-III hours are not supported.
 
-      # ----- Usual Hours -----
-      # Continuous: usual hours worked per week.
+
+      HoursWorked = list(
+        type    = "continuous",
+        members = NULL,
+        report_ratio_translations = TRUE,
+        cap_hours = 120,
+        natural_lower_bound = 0,
+        natural_upper_bound = 120,
+        lower_bound_rule = "natural",
+        upper_bound_rule = "fixed",
+        sources = list(
+          "3" = NULL,
+          "4" = c(first_job_current = "H4LM6", current_work = "H4LM11",
+                  current_jobs = "H4LM12", total_hours = "H4LM13",
+                  primary_job_hours = "H4LM19")
+        ),
+        wave3_codes = list(
+          work_yes = 1L, work_no = 0L,
+          work_missing = 7L,
+          # H3LM16 is observed on a 0-90 numeric range, but H3LM7=1 defines
+          # current paid work at >=10 h/week. Values 0-9 are therefore
+          # recognized for audit purposes but not accepted as logically
+          # consistent worker-hours outcomes.
+          hours_observed_min = 0, hours_valid_min = 10, hours_valid_max = 90,
+          hours_missing = c(96L, 97L, 98L, 99L)
+        ),
+        wave4_codes = list(
+          first_job_yes = 1L,
+          current_work_yes = 1L, current_work_no = 0L,
+          current_jobs_valid = c(1L, 2L, 3L, 4L, 5L, 6L, 7L, 11L, 12L, 15L),
+          current_jobs_total_hours_route = c(2L, 3L, 4L, 5L, 6L, 7L, 11L, 12L, 15L, 98L),
+          current_jobs_missing = c(95L, 97L, 98L),
+          total_hours_valid_min = 10, total_hours_valid_max = 120,
+          total_hours_missing = c(995L, 997L, 998L),
+          primary_hours_valid_min = 10, primary_hours_valid_max = 168,
+          primary_hours_missing = c(995L, 996L, 997L, 998L)
+        ),
+        drop_from_candidates_by_wave = list(
+          "3" = character(0),
+          "4" = c("H4LM6", "H4LM11", "H4LM12", "H4LM13", "H4LM19"),
+          "5" = character(0)
+        ),
+        drop_from_candidates = character(0)
+      ),
+      
+      # UsualHours is an unsupported family and fails explicitly rather than
+      # routing to a production outcome.
       UsualHours = list(
         type    = "continuous",
         members = NULL,
+        alias_for = "HoursWorked",
+        cap_hours = 120,
+        natural_lower_bound = 0,
+        natural_upper_bound = 120,
+        lower_bound_rule = "natural",
+        upper_bound_rule = "fixed",
         sources = list(
-          "3" = NULL,            # PLACEHOLDER: not measured at Wave 3?
-          "4" = "H4EC4",         # example; replace with correct item
-          "5" = "H5EC4"          # example; PLACEHOLDER for Wave 5
+          "3" = c(current_work = "H3LM7", main_job_hours = "H3LM16"),
+          "4" = c(first_job_current = "H4LM6", current_work = "H4LM11",
+                  current_jobs = "H4LM12", total_hours = "H4LM13",
+                  primary_job_hours = "H4LM19")
+        ),
+        wave3_codes = list(
+          work_yes = 1L, work_no = 0L,
+          work_missing = 7L,
+          # H3LM16 is observed on a 0-90 numeric range, but H3LM7=1 defines
+          # current paid work at >=10 h/week. Values 0-9 are therefore
+          # recognized for audit purposes but not accepted as logically
+          # consistent worker-hours outcomes.
+          hours_observed_min = 0, hours_valid_min = 10, hours_valid_max = 90,
+          hours_missing = c(96L, 97L, 98L, 99L)
+        ),
+        wave4_codes = list(
+          first_job_yes = 1L,
+          current_work_yes = 1L, current_work_no = 0L,
+          current_jobs_valid = c(1L, 2L, 3L, 4L, 5L, 6L, 7L, 11L, 12L, 15L),
+          current_jobs_total_hours_route = c(2L, 3L, 4L, 5L, 6L, 7L, 11L, 12L, 15L, 98L),
+          current_jobs_missing = c(95L, 97L, 98L),
+          total_hours_valid_min = 10, total_hours_valid_max = 120,
+          total_hours_missing = c(995L, 997L, 998L),
+          primary_hours_valid_min = 10, primary_hours_valid_max = 168,
+          primary_hours_missing = c(995L, 996L, 997L, 998L)
         ),
         drop_from_candidates_by_wave = list(
-          "3" = character(0), "4" = "H4EC4", "5" = "H5EC4"
+          "3" = c("H3LM7", "H3LM16"),
+          "4" = c("H4LM6", "H4LM11", "H4LM12", "H4LM13", "H4LM19"),
+          "5" = character(0)
         ),
         drop_from_candidates = character(0)
       ),
-
+      
       # ----- Compensation (earnings) -----
       # Continuous annual earnings in raw dollars. Wave 4 is the verified primary source.
       Compensation = list(
@@ -336,30 +529,27 @@ cfg <- list(
           "4" = c("Earnings", "EarningsSource", "H4EC2", "H4EC3"),
           "5" = c("Earnings", "H5EC2", "H5EC3")
         ),
-        drop_from_candidates = c("Earnings", "EarningsSource", "H4EC2", "H4EC3")   # legacy fallback
+        drop_from_candidates = c("Earnings", "EarningsSource", "H4EC2", "H4EC3")   # fallback fields
       ),
-
+      
       # ----- Health Status -----
-      # Nested binary outcomes on self-rated health.
+      # Binary indicator for at least good self-rated health.
       HealthStatus = list(
         type    = "binary_nested",
         members = list(
-          at_least_fair      = list(label = "At least fair health"),
-          at_least_good      = list(label = "At least good health"),
-          at_least_very_good = list(label = "At least very good health"),
-          excellent          = list(label = "Excellent health")
+          at_least_good = list(label = "At least good health", primary = TRUE)
         ),
         sources = list(
-          "3" = "H3GH1",         # example; replace with correct item
-          "4" = "H4GH1",         # example; replace with correct item
-          "5" = "H5GH1"          # PLACEHOLDER for Wave 5
+          "3" = "H3GH1",
+          "4" = "H4GH1"
         ),
         drop_from_candidates_by_wave = list(
-          "3" = "H3GH1", "4" = "H4GH1", "5" = "H5GH1"
+          "3" = "H3GH1", "4" = "H4GH1"
         ),
+        report_ratio_translations = TRUE,
         drop_from_candidates = character(0)
       ),
-
+      
       # ----- Mental Health -----
       # PLACEHOLDER: fill in per-wave source variables and recoding rules.
       MentalHealth = list(
@@ -374,7 +564,7 @@ cfg <- list(
         ),
         drop_from_candidates = character(0)
       ),
-
+      
       # ----- Substance Use -----
       SubstanceUse = list(
         type    = "binary_single",
@@ -389,7 +579,7 @@ cfg <- list(
       )
     )  # end families
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Preprocessing.
   # ---------------------------------------------------------------------------
@@ -399,19 +589,12 @@ cfg <- list(
     numeric_imputation      = "median",
     factor_missing_label    = "Missing",
     factor_other_label      = "_Other_",
+    
+    # Source-informed exact-code missing classifier. Values such as 196 and
+    # 22198 are not classified as reserve codes by their numeric suffix.
+    # The frozen dictionary separates documented general-missing and skip codes.
 
-    # Source-informed exact-code missing classifier. The old implementation
-    # matched numeric SUFFIXES, so ordinary values such as 196 or 22,198 were
-    # falsely treated as 96/98. This classifier never uses suffixes. It learns
-    # exact missing-code families once on the complete Wave I merge, using:
-    #   * Add Health questionnaire-name structure (H1*, PA*, PB*, S<digit>*,
-    #     A<digit>*),
-    #   * the existing long-factor/forced-factor declarations,
-    #   * observed response support, and
-    #   * exact wider sentinel blocks (996-999, 9996-9999, ...).
-    # Common skips remain skips even when they exceed 20% of observations.
-    # Finite values from contextual/continuous sources remain substantive by
-    # default unless a questionnaire-source exact sentinel block is supported.
+
     missing_classifier = "global_source_informed_exact_v1",
     # Semantic code meanings are frozen once from the complete Wave I merge
     # before Wave II exposure restriction, fold creation, or any screening.
@@ -458,7 +641,7 @@ cfg <- list(
     # categories, but COMMID is an identifier and must not inherit response-code
     # missingness merely because it is factorized.
     nonquestionnaire_long_factors = c("COMMID.x", "COMMID.y"),
-
+    
     # Exact conventional one- and two-digit families. Wider families
     # (996-999, 9996-9999, ..., through auto_special_code_max_digits)
     # are generated automatically and are never matched by suffix.
@@ -466,7 +649,7 @@ cfg <- list(
     factor_refusal_codes_low  = c(6L, 8L, 9L),
     factor_skip_code_high   = 97L,
     factor_refusal_codes_high = c(96L, 98L, 99L),
-
+    
     # Special-code retention for factors. If a learned exact skip code
     # (7, 97, 997, 9997, ...) appears often enough, it is preserved
     # as its own factor level (called factor_skip_label) instead of being
@@ -481,7 +664,7 @@ cfg <- list(
     factor_skip_label                = "Skip",
     factor_special_code_min_n        = 30L,
     factor_special_code_min_prop     = 0.02,
-
+    
     # Resolve .x/.y name collisions only after auditing the paired values.
     # Agreeing pairs are coalesced into .x; conflicting or unverifiable pairs
     # are retained separately so no information is silently discarded.
@@ -489,8 +672,8 @@ cfg <- list(
     constant_variance_tol   = 1e-10,
     scale_eps               = 1e-12,
     sanitize_column_names_for_model_matrix = TRUE,
-    # v6 Fix C: drop rows with invalid sampling weights at dataset-build time
-    # so every downstream stage sees the same analytic sample.
+    # Drop invalid sampling weights during dataset construction so every
+    # subsequent stage uses the same valid-weight analytic cohort.
     drop_invalid_weights_at_build = TRUE,
     long_factors = c(
       "H1HR3A","H1HR5A","H1HR13","H1GI12","H1NM4","H1NF4","H1RM1","H1RM3","H1RM4",
@@ -501,32 +684,28 @@ cfg <- list(
     ),
     force_factor_prefixes = c("H1HR6")
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Rough-screen helper settings used by nested fold-specific screening and diagnostics.
   # ---------------------------------------------------------------------------
   rough_prescreen = list(
     seed                    = NULL,
-    # Rough-screen internal CV folds. 2 is ~1/3 faster than 3 and ranks the
-    # strong signals near-identically (the screen is a filter, not the final
-    # estimator). NOTE: fewer folds => sparser per-fold designs => more
-    # constant/duplicate dummies => more rank-deficiency downstream. That is
-    # now handled (SL.glm dropped from Q; ridge screen has maxit=1e6), so 2
-    # is safe. Left at 3 as a conservative default; set 2 to reduce runtime.
+    # Whole-PSU internal fold count for rough-screen ranking. This is a
+    # training-only filter separate from final CV-TMLE cross-fitting.
+
+
     folds                   = 3L,
     binomial_eps            = 1e-15,
-    # iteration / convergence controls for the per-variable ridge
-    # logistic fit in screen_binom_linear. The previous hard-coded maxit=10000
-    # caused "Convergence not reached / empty model" warnings on sparse-factor
-    # variables at the 13,500-row scale. 1e6 removes the iteration ceiling as a
-    # practical constraint; the ridge penalty keeps each fit well-posed.
+    # Iteration and convergence controls for per-variable ridge-logistic
+    # ranking fits. A positive ridge penalty regularizes sparse-factor designs.
+
+
     glmnet_maxit            = 1000000L,
     glmnet_thresh           = 1e-5,
-    # ridge penalty for the per-variable screen fit. Raised from the
-    # old hard-coded 0.01 because maxit=1e6 still failed ~75 fits/fold: the
-    # cause is ill-posed fits (separation/collinearity on rare indicators),
-    # not iteration budget. A strong ridge makes each fit strongly convex and
-    # convergent. For a ranking screen the exact value is immaterial.
+    # Ridge penalty used in the per-variable ranking screen.
+    # Regularization and convergence must be assessed within each training fold.
+
+
     ridge_lambda            = 1.0,
     create_plots            = FALSE,
     save_plots_to_file      = FALSE,
@@ -537,7 +716,7 @@ cfg <- list(
     plot_exposure_png       = "rough_prescreen_exposure_knee.png",
     plot_outcome_png        = "rough_prescreen_outcome_knee.png"
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Final W preprocessing after nested rough screening.
   # These settings are used only to build the numeric model matrix for Q/g/pi.
@@ -557,7 +736,7 @@ cfg <- list(
     winsor_probs                      = c(0.01, 0.99),
     winsorize_binary_numeric          = FALSE
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Final CV-TMLE.
   # ---------------------------------------------------------------------------
@@ -583,17 +762,17 @@ cfg <- list(
     fold_internal_max_size_ratio  = 1.75,
     fold_internal_max_size_deviation_prop = 0.45,
     fold_min_active_cell_n        = 1L,
+    
+    # Nested screening uses only the final outer-fold training rows.
+    # Outcome, outcome-observation and joint A/Y signals drive the candidate pool;
+    # strong exposure-only predictors are not directly forced into final W.
 
-    # Reviewer-responsive nested screening inside each final TMLE outer fold.
-    # The rough screen is a broad first pass, not a causal variable selector.
-    # Exposure-only predictors are NOT force-selected because strong A-only
-    # predictors may behave like instruments. Candidates are driven by outcome
-    # prediction, outcome-observation prediction, and joint A/Y ranking.
+
     nested_rough_prescreen_in_final_cv = TRUE,
-    # rough-screen internal CV folds 3 -> 2. The rough screen is a
-    # ranking filter, not the final estimator; 2-fold ranks the strong signals
-    # near-identically to 3-fold and is ~1/3 faster, which offsets the larger
-    # caps below. Robustness-neutral.
+    # Internal whole-PSU fold count for the rough ranking screen.
+    # This ranking filter is separate from the final estimator cross-fitting.
+
+
     rough_folds                   = 2L,
     # retention caps raised for the 13,500-row regime (were sized for a
     # 1,500-row sample). A richer pool reaches the multivariable elastic-net union screen; the
@@ -604,45 +783,35 @@ cfg <- list(
     rough_top_n_missingness       = 40L,
     rough_top_n_joint_AY          = 60L,
     rough_top_n_exposure_only     = 0L,
-
+    
     # Exposure-predictive candidates are allowed into the nested multivariable
     # elastic-net step for union screening, but are not directly forced into
     # final W by the marginal rough screen.
     rough_top_n_exposure_for_lasso = 90L,
+    
+    # Training-only redundancy control represents each variable by a
+    # one-dimensional empirical signature and applies the configured
+    # correlation-based deduplication method.
 
-    # Fully data-driven redundancy control. Variables are represented by a
-    # one-dimensional empirical signature learned from the fold's training
-    # rows; variables whose signatures are too correlated with already-kept
-    # variables are skipped greedily. No manual domain grouping is used.
     rough_redundancy_control      = TRUE,
-    # 0.75 -> 0.90. The 0.75 threshold dropped ~50-63% of the rough
-    # pool, which can discard genuine confounders that merely share a dominant
-    # signature direction with another variable. At 13,500 rows there are
-    # enough degrees of freedom to keep more correlated variables. The later
-    # rough-variable and processed-column budgets provide the principal size
-    # controls; this threshold is only a conservative redundancy filter.
+    # Correlation threshold for redundancy grouping. Final rough-variable
+    # and processed-column budgets separately constrain model size.
+
+
     rough_redundancy_cor_threshold = 0.90,
-    # redundancy handling switched from a greedy, rank-order-dependent
-    # "keep-first" filter to DETERMINISTIC correlation clustering. The greedy
-    # filter kept whichever member of a correlated cluster ranked first, but the
-    # rank came from fold-dependent screening scores, so a different seed kept a
-    # different cluster member -> the dominant source of seed churn in the ATT.
-    # Clustering assigns variables to clusters by their correlation structure
-    # (order-independent, seed-independent) and picks a deterministic
-    # representative per cluster, eliminating that churn. The cor threshold
-    # above is reused as the clustering cut (a cluster is a set of variables all
-    # mutually correlated above the threshold under complete linkage). Complete
-    # linkage is deliberately conservative: it only groups variables that are
-    # ALL mutually highly correlated, protecting weakly-correlated substantive
-    # confounders (e.g. baseline mental-health items) from being absorbed.
-    redundancy_method             = "cluster",       # "cluster" or "greedy" (legacy)
+    # cluster uses deterministic correlation grouping and a deterministic
+    # representative. Complete linkage groups only mutually highly correlated
+    # variables at the configured threshold. greedy applies an ordered filter.
+
+
+    redundancy_method             = "cluster",       # "cluster" or "greedy" 
     redundancy_linkage            = "complete",      # complete = conservative; protects real confounders
     cluster_dedupe_max_vars       = 6000L,           # skip pre-score clustering above this many SUBSTANTIVE candidates (runtime guard; indicators excluded from count)
-    # 120 -> 180. Lets a richer pool reach the redundancy filter and
-    # LASSO. Final model size is governed by the processed-column cap, not
-    # this, so a larger pool does not enlarge the expensive nuisance fits.
-    rough_candidate_pool_max      = 180L,
+    # Maximum diversified candidate pool entering redundancy control and
+    # multivariable screening; the final processed-column cap is a separate limit.
 
+    rough_candidate_pool_max      = 180L,
+    
     # fold-specific, data-driven prefilter before the expensive
     # nested rough screen. This removes variables that are unusable within a
     # training fold because they are nearly all missing, constant, exact
@@ -661,7 +830,7 @@ cfg <- list(
     rough_prefilter_two_arm_min_n    = 0L,
     rough_prefilter_two_arm_max_levels = 3L,
     rough_screen_batch_size       = 500L,
-
+    
     # Optional nested multivariable elastic-net screen after the rough screen.
     # Within the retained marginal candidate pool, it can identify conditional
     # associations not apparent from each variable's marginal rank. It is fit
@@ -679,6 +848,11 @@ cfg <- list(
     # disabling the data-driven screen (unlike prespecified_W, which replaces it).
     # NULL = no-op (default; production runs unchanged). Set to the baseline
     # mental-health block names for the forced-MH-block sensitivity.
+    # protected_W is resolved from cfg$analysis$protected_W_mode via
+    # resolve_protected_W(). These two entries define the candidate sets; do
+    # not edit protected_W directly.
+    protected_W_items             = paste0("H1FS", 1:19),
+    protected_W_summary           = "MHSum_W1",
     protected_W                   = paste0("H1FS", 1:19),
     # All variables returned by get_mandatory_W() bypass screening and the
     # optional processed-column budget. protected_W remains the subset whose
@@ -688,26 +862,23 @@ cfg <- list(
     # Preserve every observed substantive level of protected H1FS factors.
     # These variables bypass rare-level, sparse-exposure, and maximum-level collapsing.
     protected_W_preserve_substantive_levels = TRUE,
-    # alpha 0.25 -> 0.5 and maxit 1e5 -> 1e6 to fix the empty-model /
-    # non-convergence failures seen at the 13,500-row scale. lambda.1se gives
-    # a more stable, more parsimonious selection now that the LASSO converges.
+    # Elastic-net alpha and iteration limit for the multivariable union screen.
+
+
     lasso_screen_alpha            = 0.50,
     lasso_screen_nlambda          = 100L,
     lasso_screen_glmnet_maxit    = 1000000L,
-    # lambda.min (was lambda.1se). In CAUSAL screening, a false negative
-    # (dropping a true confounder that is a weak outcome predictor) biases the
-    # estimate, whereas a false positive (keeping an irrelevant variable) only
-    # costs a little efficiency. lambda.1se is more parsimonious but more likely
-    # to drop weak-but-real confounders -- the opposite of what union screening
-    # is meant to protect. lambda.min is the more inclusive, confounding-safe
-    # choice and is used as primary.
+    # lambda.min retains the cross-validation loss minimizer for causal
+    # screening; lambda.1se applies the more parsimonious one-standard-error rule.
+
+
     lasso_screen_lambda_choice    = "lambda.min",
     lasso_screen_folds            = 5L,
     lasso_screen_include_delta    = TRUE,
     lasso_screen_min_vars         = 30L,
     lasso_screen_max_vars         = 130L,
     lasso_screen_max_processed_cols = 240L,
-
+    
     # Raw-variable cap after the rough pool is augmented and prioritized by
     # the A, Y, and delta elastic-net selections. Elastic-net nonselection does
     # not automatically remove a rough-pool variable.
@@ -719,12 +890,12 @@ cfg <- list(
     # are reported separately and may sit on top of this allowance. This is not
     # described as an events-per-parameter validity rule.
     final_max_processed_columns  = 260L,
-    # Legacy raw-count events-per-column logic is deliberately disabled.
+    # Raw events-per-column gating is disabled; use held-out fit and support diagnostics.
     use_epp_cap                  = FALSE,
     rough_min_total_vars          = 10L,
     nested_rough_selection_log_csv = "nested_rough_selection_log.csv",
     cluster_assignment_log_csv = "cluster_assignments.csv",
-
+    
     min_treated_warning_n        = 30L,
     min_observed_treated_warning_n = 20L,
     internal_fold_min_treated_warning_n = 8L,
@@ -732,25 +903,32 @@ cfg <- list(
     min_ess_treated_train_warning = 20,
     min_ess_treated_valid_warning = 10,
     fail_on_nuisance_fallback = TRUE,
-    g_lower                      = 0.025,
+    g_lower                      = 0.025, # fixed-rule value and sensitivity comparator
+    g_lower_rule                 = "sample_size",
+    g_lower_sample_size_constant = 5,
+    broad_Q_candidate            = TRUE,
+    broad_Q_max_raw              = 300L,
+    broad_Q_max_processed        = 520L,
+    # One extra candidate: reuse Q ensemble residuals, screen ONCE per outer
+    # training fold, then fit the fixed design on the existing inner PSU folds.
+    # No ATT/p-value selects its weights. Inner risk is not fully nested over screening.
+    residual_Q_candidate         = TRUE,
+    residual_Q_pilot_max_raw     = 300L, # compatibility setting; no separate pilot is fitted
+    residual_Q_add_max_raw       = 150L,
+    residual_Q_max_processed     = 520L,
     g_upper                      = 0.975,
     pi_lower                     = 0.025,
     pi_upper                     = 0.999,
     positivity_warning_threshold = 0.05,
     positivity_warning_fraction  = 0.10,
+    
+    # Report ATT and labelled ATE comparators. Optional overlap trimming
+    # defines a secondary fitted-support population and changes its target.
+    # The designated headline is the joint-component ATT, not a data-selected
+    # estimate. Examine overlap in the target population without selecting
+    # an estimand or bound based on its effect estimate.
 
-    # positivity remediation. The 13,500-row run showed ~50% of rows
-    # with g*pi1 < 0.05 (treated-arm non-overlap). Two diagnostics are added:
-    # (1) report the ATT alongside the ATE. The ATT only needs overlap
-    # where treated units exist and is far better identified at 9%
-    # prevalence.
-    # (2) optionally trim to a common-support propensity band and report
-    # the trimmed-sample ATE. Rows with g outside [lo, hi] are dropped
-    # from the targeted means and the EIF.
-    # DEFAULT HEADLINE: the ATT via joint-component CV-TMLE
-    # (primary_estimand = "att"). The full-sample ATE, trimmed ATE, plug-in,
-    # AIPW, and one-step ATT remain explicitly labeled secondary estimates.
-    # Changing primary_estimand changes the estimand reported in the headline.
+
     report_att                   = TRUE,
     trim_enable                  = TRUE,
     trim_g_lower                 = 0.05,
@@ -784,20 +962,20 @@ cfg <- list(
     # estimand, rather than reusing the full-sample epsilon. Recommended TRUE
     # whenever the trimmed ATE is used as anything more than a rough check.
     retarget_trimmed             = TRUE,
-
+    
     # Strict numerical checks for raw-dollar ATT targeting and percentage effects.
     target_score_tol             = 1e-10,
     att_eif_center_tol_scaled    = 1e-8,
     target_root_max_expand       = 60L,
     percentage_primary           = "prevention_gain",
-
+    
     # Bounds applied to held-out Q predictions before logit targeting.
     Q_pred_lower                 = 0.005,
     Q_pred_upper                 = 0.995,
     Q_clip_warning_fraction      = 0.01,
     Q_clip_review_fraction       = 0.05,
-
-    use_fold_checkpoints         = FALSE,
+    
+    use_fold_checkpoints         = TRUE,
     gc_after_fold                = TRUE,
     # Genuine total matrix safety guard, including protected columns.
     hard_max_processed_columns   = 450L,
@@ -809,20 +987,28 @@ cfg <- list(
     fold_support_log_csv         = "fold_support_log.csv",
     internal_fold_support_log_csv = "internal_fold_support_log.csv"
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Learner libraries. Toggles removed: allow_non_weight_aware, enable_plotting.
   # ---------------------------------------------------------------------------
   learners = list(
-    # use_glm set FALSE for Q. Stock SL.glm fits an unregularized glm
-    # on the full dummy-expanded W; on rank-deficient per-fold designs (more
-    # common after reducing rough-screen folds, which shrinks each fold's
-    # sample and leaves constant/duplicated dummies) predict.glm emits
-    # "prediction from rank-deficient fit" warnings and can yield unstable
-    # predictions. SL.glmnet.fixed (elastic net) is the regularized
-    # replacement and cannot be rank-deficient. g and pi already excluded glm.
+    auxiliary_binary_library = c("SL.mean", "SL.glmnet.fixed"),
+    # The regularized elastic-net Q candidate is enabled instead of an
+    # unregularized dummy-expanded GLM. Per-fit validation checks finite predictions.
+
+
     Q  = list(use_mean = TRUE, use_glm = FALSE, use_glmnet = TRUE,
               use_ranger = TRUE, use_xgboost = TRUE,
+              # Optional control-arm Q candidates fit the base learner on unexposed
+              # training rows with A removed. Exposed predictions add a survey-weighted
+              # shift learned from exposed training rows. These candidates are disabled
+              # in the primary library and enabled by D13_Q_control_arm; ensemble weights
+              # are fitted using the SuperLearner loss criterion.
+
+
+              use_glmnet_control_arm = FALSE,
+              use_ranger_control_arm = FALSE,
+              use_xgboost_control_arm = FALSE,
               use_xgboost_rich = FALSE, use_earth = FALSE,
               use_gam = FALSE, use_svm = FALSE, use_nnet = FALSE),
     g  = list(use_mean = TRUE, use_glm = FALSE, use_glmnet = TRUE,
@@ -831,6 +1017,10 @@ cfg <- list(
               use_gam = FALSE, use_svm = FALSE, use_nnet = FALSE),
     pi = list(use_mean = TRUE, use_glm = FALSE, use_glmnet = TRUE,
               use_glmnet_A_unpenalized = FALSE,
+              # The primary fixed glmnet leaves A unpenalized in Q and pi.
+              # A separate unpenalized-A pi sensitivity fit is optional and disabled.
+
+              dual_fit_A_unpenalized = FALSE,
               use_ranger = FALSE, use_xgboost = TRUE, use_earth = FALSE,
               use_gam = FALSE, use_svm = FALSE, use_nnet = FALSE),
     # alpha = 0.5 (elastic net) actually takes effect via SL.glmnet.fixed.
@@ -840,23 +1030,26 @@ cfg <- list(
                    maxit = 100000L, standardize = TRUE, internal_folds = 5L),
     glmnet_h1fs = list(h1fs_penalty_multiplier = 0.25),
     glmnet_pi_A = list(A_penalty_multiplier = 0.0),
-    ranger  = list(num.trees = 500L),
+    # always_split_A makes each forest node consider A when A is a Q
+    # predictor. It has no effect on g, whose design excludes A.
+
+    ranger  = list(num.trees = 500L, always_split_A = FALSE),
     xgboost = list(ntrees = 150L, max_depth = 2L, shrinkage = 0.05,
                    min_child_weight = 20),
     # Optional Q-only sensitivity learner. It is registered under a distinct
     # SuperLearner name so enabling it does not alter g or pi.
     xgboost_rich = list(ntrees = 250L, max_depth = 3L, shrinkage = 0.04,
                         min_child_weight = 10),
-    # earth (MARS) MUST stay off at this scale. On a 13,500-row x
-    # ~200-column dummy-heavy design its forward-pass knot search ran 35-88
-    # HOURS per fold and dominated total runtime (~330h for one scenario).
-    # Do not set learners$Q$use_earth = TRUE on the full sample.
+    # MARS knot search can be expensive on large dummy-expanded designs.
+    # Keep the candidate disabled unless memory and runtime have been assessed.
+
+
     earth   = list(degree = NULL, nprune = NULL),
     gam     = list(k = 4L, smooth_unique_min = 10L, eps = 1e-6, maxit = 100L),
     svm     = list(cost = 1, gamma = NULL, kernel = "radial"),
     nnet    = list(size = 5, decay = 0.0001, maxit = 200, MaxNWts = 10000)
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Optional policy translation of the ATT.
   # ---------------------------------------------------------------------------
@@ -872,51 +1065,82 @@ cfg <- list(
     output_csv = "att_policy_translation.csv",
     outcome_scale_label = "configured bounded/capped outcome"
   ),
-
-  # Optional mortality linkage/composite sensitivity. enabled controls linkage;
-  # composite_zero_at_death separately controls whether the outcome is recoded.
-  # NDIDD19Y is read from the configured mortality file. The primary mortality
-  # definition is independent of Wave-IV participation: a recognized death year
-  # in the inclusive 1997-2007 window sets Death1997_2007 = 1. IYEAR4 is read
-  # from Wave IV only for an audit of interview-year availability/distribution;
-  # it NEVER changes mortality classification and is not required for deceased
-  # respondents. H4EC2 is a rolling past-year earnings measure, so the pipeline
-  # deliberately does NOT manufacture a calendar earnings-reference year from
-  # IYEAR4. NDIDD19Y, IYEAR4, and all mortality-derived fields are excluded from W.
-  # Native NDIDD19Y missing values are treated as no recorded death by default.
-  # Any other non-year code must be explicitly listed in no_death_codes or the
-  # run stops when fail_on_unrecognized_codes is TRUE.
+  
+  # Optional wave-specific mortality linkage/composite. `enabled_waves` selects
+  # which requested outcome waves use the mortality-inclusive zero composite.
+  # NDI supplies death year (NDIDD19Y) and month (NDIDD19M). For NDIDD19M,
+  # native missing and code 997 are recognized invalid/unknown month values;
+  # they are NEVER interpreted as evidence that no death occurred. Other
+  # nonmissing month codes outside 1:12 fail loudly.
+  #
+  # Every supported outcome uses month-level ordering against the respondent's
+  # actual interview year/month. For a noninterviewed respondent, the fallback
+  # reference is the latest complete interview year-month observed in that wave
+  # file (the fieldwork endpoint). A death in an interviewed respondent's same
+  # interview month is not assumed to precede the observed outcome because the
+  # respondent was alive at interview. A noninterviewed respondent who died on
+  # or before the fieldwork endpoint is assigned the mortality-composite zero;
+  # an endpoint-year death with unknown month remains timing-unresolved.
   mortality_sensitivity = list(
     enabled = TRUE,
+    enabled_waves = c(3L, 4L),
     source_var = "NDIDD19Y",
-    # Audit-only Wave-IV interview year. Missing IYEAR4 is expected for people
-    # who were not interviewed at Wave IV, including deaths; it is not a failure.
-    interview_year_var = "IYEAR4",
-    interview_year_valid_min = 2007L,
-    interview_year_valid_max = 2009L,
-    earnings_price_basis = "nominal_past_year_dollars_no_inflation_adjustment",
-    derived_death_year_var = "NDI19DeathYear",
-    death_in_window_var = "Death1997_2007_RawWindow",
-    death_year_start = 1997L,
-    death_year_end = 2007L,
+    source_month_var = "NDIDD19M",
     valid_year_min = 1900L,
     valid_year_max = 2100L,
+    valid_month_min = 1L,
+    valid_month_max = 12L,
+    invalid_month_codes = 997L,
     native_missing_means_no_death = TRUE,
     no_death_codes = 99997,
     fail_on_unrecognized_codes = TRUE,
     require_complete_linkage = TRUE,
-    # A respondent linked as dead during 1997-2007 should not also have a
-    # finite Wave-IV earnings value. Stop before overwriting such a value unless
-    # the analyst explicitly disables this contradiction gate after review.
     fail_on_death_with_observed_original_outcome = TRUE,
-    death_before_outcome_var = "Death1997_2007",
     composite_zero_at_death = TRUE,
-    linkage_audit_csv = "mortality_linkage_1997_2007_audit.csv",
-    interview_year_audit_csv = "wave4_interview_year_audit.csv",
-    contradiction_audit_csv = "mortality_death_with_observed_outcome_records.csv",
-    output_csv = "mortality_composite_zero_at_death_audit.csv"
+    wave_specs = list(
+      `3` = list(
+        timing_mode = "interview_month",
+        death_year_start = 1997L,
+        death_year_end = 2002L,
+        derived_death_year_var = "NDIY3",
+        derived_death_month_var = "NDIM3",
+        death_in_window_var = "D3Raw",
+        death_before_outcome_var = "DeathW3",
+        timing_status_var = "D3Time",
+        interview_year_var = "IYEAR3",
+        interview_month_var = "IMONTH3",
+        interview_year_valid_min = 2001L,
+        interview_year_valid_max = 2002L,
+        interview_month_valid_min = 1L,
+        interview_month_valid_max = 12L,
+        linkage_audit_csv = "mort_link.csv",
+        interview_timing_audit_csv = "itime.csv",
+        contradiction_audit_csv = "mort_conf.csv",
+        output_csv = "mort_zero.csv"
+      ),
+      `4` = list(
+        timing_mode = "interview_month",
+        death_year_start = 1997L,
+        death_year_end = 2009L,
+        derived_death_year_var = "NDIY4",
+        derived_death_month_var = "NDIM4",
+        death_in_window_var = "D4Raw",
+        death_before_outcome_var = "DeathW4",
+        timing_status_var = "D4Time",
+        interview_year_var = "IYEAR4",
+        interview_month_var = "IMONTH4",
+        interview_year_valid_min = 2007L,
+        interview_year_valid_max = 2009L,
+        interview_month_valid_min = 1L,
+        interview_month_valid_max = 12L,
+        linkage_audit_csv = "mort_link.csv",
+        interview_timing_audit_csv = "itime.csv",
+        contradiction_audit_csv = "mort_conf.csv",
+        output_csv = "mort_zero.csv"
+      )
+    )
   ),
-
+  
   # ---------------------------------------------------------------------------
   # Diagnostics.
   # ---------------------------------------------------------------------------
@@ -931,7 +1155,7 @@ cfg <- list(
     plot_fold_times           = TRUE,
     plot_overlap_product      = TRUE,
     plot_qq_eic               = TRUE,
-    diagnostics_dir           = "diagnostics",
+    diagnostics_dir           = "d",
     variable_consistency_csv = "variable_selection_consistency.csv",
     learner_weight_summary_csv = "learner_weight_summary.csv",
     learner_weight_long_csv = "learner_weight_long.csv",
@@ -971,6 +1195,12 @@ cfg <- list(
     enable_mnar_pattern_mixture = TRUE,
     mnar_pattern_mixture_csv = "att_mnar_pattern_mixture.csv",
     mnar_shift_sd_grid = c(-0.50, -0.25, 0, 0.25, 0.50),
+    # Complementary aggregate pattern-mixture diagnostic for unresolved W4
+    # hours/LFP only. No row-level output and no additional nuisance fitting.
+    enable_mnar_two_part = TRUE,
+    mnar_two_part_zero_grid = c(0, 0.05, 0.10, 0.20),
+    # NULL: hours {-10,-5,0,5,10}; LFP probability {-0.10,-0.05,0,0.05,0.10}.
+    mnar_two_part_delta_grid = NULL,
     enable_evalue = TRUE,
     exclude_too_missing_from_love_plots = TRUE,
     cluster_influence_leaveout_csv = "cluster_influence_leaveout.csv",
@@ -990,6 +1220,51 @@ cfg <- list(
     att_g_pi_clip_sensitivity_csv = "att_g_pi_clip_sensitivity.csv",
     att_g_pi_clip_sensitivity_floors = c(0.01, 0.025, 0.05),
     att_g_pi_clip_include_configured = TRUE,
+    # g-only clipping rows vary the propensity floor while holding pi bounds
+    # fixed. Joint g/pi sweeps cannot isolate the contribution of either bound.
+    # ATT control odds g/(1-g) are bounded above through g_upper.
+
+
+    att_g_only_clip_floors = c(0.005, 0.01, 0.025, 0.05),
+    # Sample-size-based lower bound c/(sqrt(n) * log(n)) of Gruber, Phillips,
+    # Lee & van der Laan (Am J Epidemiol 2022;191:1640-1651), the default in
+    # the CRAN tmle package. With missing outcomes the paper directs that n be
+    # the number of OBSERVED outcomes, not the analytic sample size; the bound
+    # is computed at runtime from the realized observed-outcome count so it
+    # tracks whatever the outcome constructor actually produces.
+    att_g_clip_include_sample_size_bound = TRUE,
+    att_g_clip_sample_size_constant = 5,
+    # Verified structural zeros are observed from records rather than
+    # interview response. The sequential estimator separates these observations
+    # from outcomes requiring interview response.
+
+
+    att_structural_zero_pi_audit_csv = "att_structural_zero_pi_audit.csv",
+    att_structural_zero_pi_override = FALSE, # obsolete: primary uses sequential observation model
+    # Optional fitted-DGP positivity simulation runs after primary outputs
+    # and never alters the estimate. Screening, recipes, Q and response surfaces
+    # are held fixed; g fitting and cross-fitting are repeated. It is not proof
+    # of actual-data coverage. The configured time budget limits this stage.
+
+
+    enable_bootstrap_positivity_diagnostic = FALSE,
+    bootstrap_positivity_replicates = 200L,
+    # Soft time budget checked between replicates. The first replicate
+    # determines the planned count; a single replicate can exceed the budget.
+    # Progress and failures are saved after every completed attempt.
+    bootstrap_positivity_max_seconds = 5400,
+    # Use the same data-adaptive g library as the primary fit. A different
+    # library is rejected; screening and fold recipes remain fixed here.
+    bootstrap_positivity_g_library = NULL, # NULL uses the full primary g library
+    bootstrap_positivity_beta_precision = 12,
+    # g floors evaluated per replicate. The same simulated data and the same
+    # refitted g are reused across floors, so the grid is nearly free and the
+    # comparison between floors is paired.
+    bootstrap_positivity_g_floors = c(0.005, 0.025, 0.05),
+    bootstrap_positivity_include_sample_size_bound = TRUE,
+    bootstrap_positivity_csv = "att_bootstrap_positivity_diagnostic.csv",
+    bootstrap_positivity_replicate_csv = "att_bootstrap_positivity_replicates.csv",
+    persist_diagnostic_W_design = TRUE,
     att_outcome_bound_sensitivity_csv = "att_tail_perturbation_diagnostic.csv",
     att_outcome_bound_quantiles    = c(0.99, 0.995, 1.00),
     earnings_construction_audit_csv = "earnings_construction_audit.csv",
@@ -1000,24 +1275,35 @@ cfg <- list(
     design_strata_source_audit_csv   = "design_strata_source_audit.csv",
     canonical_design_field_audit_csv = "canonical_design_field_audit.csv",
     core_balance_csv                 = "protected_h1fs_att_balance.csv",
+    dsp4_outcome_audit_csv           = "dsp4_outcome_audit.csv",
+    g_calibration_audit_csv          = "g_calibration_audit.csv",
+    prognostic_balance_csv           = "prognostic_score_balance.csv",
+    # Export held-out initial Q(0,W) keyed by respondent ID only inside the
+    # restricted workspace. A fixed reference export enables comparable
+    # prognostic-balance checks across specifications. Never upload this export.
+
+
+    prognostic_score_export_csv      = "prognostic_score_export.csv",
+    prognostic_reference_score_path  = NULL,
+    ovb_robustness_csv               = "att_additive_bias_sensitivity.csv",
+    adaptive_truncation_csv          = "adaptive_truncation_selection.csv",
+    enable_prognostic_balance        = TRUE,
+    enable_ovb_robustness            = TRUE,
+    # This switch produces fixed additive-bias sensitivity in outcome units,
+    # not an OLS partial-R2 robustness value.
+    additive_bias_grid = NULL, # NULL uses a descriptive outcome-SD grid
     att_leaveout_top_k             = c(1L, 3L, 5L),
     run_manifest_csv               = "run_manifest.csv",
     wave2_completion_expanded_balance_csv = "wave2_completion_expanded_balance.csv",
     wave2_completion_all_candidates_csv = "wave2_completion_all_candidates.csv",
     wave2_completion_model_csv = "wave2_completion_model.csv",
     diagnostic_status_csv = "diagnostic_status.csv",
+    
+    # MNAR diagnostics hold nuisance fits and the primary estimate fixed.
+    # They describe breakdown points, support-extreme means, and shifts scaled
+    # to observed missingness-related gradients; they do not refit the pipeline.
 
-    # -------------------------------------------------------------------------
-    # MNAR sensitivity extensions (v8.28).
-    # All three are FIXED-NUISANCE post-hoc diagnostics computed from the
-    # already-targeted ATT components.  They do NOT refit any nuisance, do NOT
-    # change the estimand, and do NOT alter the primary ATT.  They re-express
-    # the existing pattern-mixture grid as (a) a breakdown point, (b) fixed-
-    # nuisance extreme-mean bounds for the configured bounded outcome, and
-    # (c) a calibrated sensitivity model in
-    # which the required unmeasured shift is expressed as a multiple of an
-    # observable missingness-related outcome gradient.
-    # -------------------------------------------------------------------------
+
     enable_mnar_breakdown            = TRUE,
     mnar_breakdown_csv               = "att_mnar_breakdown_point.csv",
     mnar_breakdown_max_sd            = 3,
@@ -1046,8 +1332,8 @@ cfg <- list(
     max_love_plot_variables = 30L,
     save_full_balance_tables = TRUE
   ),
-
-
+  
+  
   # ---------------------------------------------------------------------------
   # Safety. Toggle removed: max_candidate_vars_warning.
   # ---------------------------------------------------------------------------
@@ -1056,8 +1342,8 @@ cfg <- list(
     max_processed_columns_warning = 20000L,
     strict_model_matrix_row_checks = TRUE,
     allow_placeholder_outcomes = FALSE,
-    # Only the verified Wave IV Compensation constructor and an explicitly
-    # configured PassThrough negative-control outcome are allowed by default.
+    # Only exact verified family/wave specifications and an explicitly configured
+    # PassThrough negative-control outcome are allowed by default.
     # Set TRUE only after a new outcome family/wave has been codebook-verified.
     allow_unverified_outcome_specs = FALSE,
     fail_on_role_alias_leakage = TRUE,
@@ -1072,5 +1358,116 @@ cfg <- list(
     require_publication_ready_marker = TRUE
   )
 )
+
+# Apply before any data preparation, cache lookup, or pipeline invocation.
+# Existing settings remain: g_calibration_method = "platt",
+# calibrate_pi = FALSE; recorded Wave-IV interview/disposition evidence defines
+# military/prison zeros for current hours/LFP only; never annual earnings.
+cfg$analysis$extra_exclude_from_candidates <- unique(c(
+  cfg$analysis$extra_exclude_from_candidates,
+  "MOVER", "SGB96A39",
+  "SGT96A82", "SGT96A83", "SGT96A84", "SGT96A85", "SGT96A86", "SGT96A87",
+  "STC9503", "STC9511",
+  "C1DI001T", "C1DI001M", "C1DI001F",
+  "C1DI002T", "C1DI002M", "C1DI002F",
+  "C1DI003T", "C1DI003M", "C1DI003F",
+  "C1DI004T", "C1DI004M", "C1DI004F",
+  "C1DI005T", "C1DI005M", "C1DI005F",
+  "C1DR001T", "C1DR001M", "C1DR001F",
+  "C1DR003T", "C1DR003M", "C1DR003F",
+  "C1SM001T", "C1SM001M", "C1SM001F",
+  "C1SM002T", "C1SM002M", "C1SM002F",
+  "C1OP001M", "C1OP001F", "C1OP002M", "C1OP002F",
+  "C1EC001", "C1EC002", "C1EC003T", "C1EC003M", "C1EC003F", "C1EC004",
+  # Separate documentation conflict: STC9518's codebook lists 998 as valid;
+  # the guide describes a sum of eight 1-4 items. Exclude until clarified.
+  "STC9518"
+))
+
+# Explicit rules precede heuristic inference. Storing the complete map in cfg
+# makes the existing Wave-I/main/fold cache fingerprints detect every edit.
+cfg$preprocessing$codebook_missing_overrides <- local({
+  rules <- list()
+  add <- function(vars, general = numeric(0), skip = numeric(0),
+                  as_factor = NULL, source) {
+    for (v in vars) {
+      if (!is.null(rules[[v]])) stop("Duplicate codebook rule: ", v)
+      rules[[v]] <<- list(general = general, skip = skip,
+                          as_factor = as_factor, source = source)
+    }
+  }
+  
+  # Official County Health codebook, pp. 2-7.
+  # https://addhealth.cpc.unc.edu/wp-content/uploads/docs/data/codebooks/Wave-I-Health-Codebook.pdf
+  health <- "Wave-I-Health-Codebook.pdf, pp. 2-7"
+  add(c("C1LE001", "C1LE004", "C1LE005", "C1LE006"),
+      general = 98, as_factor = FALSE, source = health)
+  add(c("C1LE002", "C1LE003", "S1CT001",
+        as.vector(outer(sprintf("C1DI%03d", 1:5), c("T", "M", "F"), paste0)),
+        as.vector(outer(c("C1DR001", "C1DR003", "C1SM001", "C1SM002"),
+                        c("T", "M", "F"), paste0)),
+        as.vector(outer(c("C1OP001", "C1OP002"), c("M", "F"), paste0)),
+        "C1EC003T"), general = 8, as_factor = FALSE, source = health)
+  add(c("C1EC001", "C1EC003M", "C1EC003F", "C1EC004"),
+      general = c(2, 8), as_factor = FALSE, source = health)
+  add("C1EC002", general = c(92, 98), as_factor = FALSE, source = health)
+  
+  # Official state-characteristics codebook, pp. 3-11; exact widths differ.
+  # https://addhealth.cpc.unc.edu/wp-content/uploads/docs/data/codebooks/Wave-I-State-Characteristics-Exclusionary-Indices-and-Inclusionary-Indices-Codebook.pdf
+  state <- "State-Characteristics-Codebook.pdf, pp. 3-11"
+  add(sprintf("STC95%02d", c(1:5, 20, 21)),
+      general = 8, as_factor = FALSE, source = state)
+  add(sprintf("STC95%02d", c(8, 11:17, 19, 22, 23)),
+      general = 98, as_factor = FALSE, source = state)
+  add(sprintf("STC95%02d", c(6, 7, 10, 24)),
+      general = 999998, as_factor = FALSE, source = state)
+  add("STC9509", general = 99998, as_factor = FALSE, source = state)
+  
+  # Official political-context codebook, Appendix B, pp. 12-26.
+  # https://addhealth.cpc.unc.edu/wp-content/uploads/docs/data/codebooks/W1POLCON.pdf
+  political <- "W1POLCON.pdf, Appendix B"
+  add("W1PCA195", general = 8, as_factor = TRUE, source = political)
+  add("W1PCA295", general = 98, as_factor = FALSE, source = political)
+  add("W1PCC290", general = 98, as_factor = TRUE, source = political)
+  add(c("W1PCC190", "W1PCG195", "W1PCG295", "W1PCG395",
+        "W1PCP192", "W1PCP292", "W1PCP392"),
+      general = 8, as_factor = FALSE, source = political)
+  add(c("W1PCS192", "W1PCS292", "W1PCS392",
+        "W1PCS194", "W1PCS294", "W1PCS394"),
+      general = 8, skip = 7, as_factor = FALSE, source = political)
+  
+  # Use the detailed birth codebook's RPDA003-RPDA007 names, not the
+  # differently numbered user-guide summary. All 14 fields are categorical.
+  # https://addhealth.cpc.unc.edu/wp-content/uploads/docs/data/codebooks/Birth_Records_Database_Codebook.pdf
+  birth <- "Birth_Records_Database_Codebook.pdf, pp. 2-9"
+  add(c("RIWA001", "RIDA002", "RPDA004", "RPDA005"),
+      general = 98, as_factor = TRUE, source = birth)
+  add("RIWA002", general = c(995, 996, 998), as_factor = TRUE, source = birth)
+  add("RIWA003", general = c(996, 998), as_factor = TRUE, source = birth)
+  add(c("RIWA004", "RIDA001", "RPDA001", "RPDA002", "RPDA003",
+        "RPDA006", "RPDA007", "RMMA001"),
+      general = c(96, 98), as_factor = TRUE, source = birth)
+  
+  # In-home sections 1, 3, 11-13, 28, 32B, 38 and 40.
+  # These documented codes must not be suppressed by the percentage heuristic.
+  # https://addhealth.cpc.unc.edu/wp-content/uploads/docs/data/codebooks/Wave-I-In-Home-Interview-Data.zip
+  inhome <- "Wave-I-In-Home-Interview-Data.zip; variable-specific codebooks"
+  add(c("H1GI3", "H1GH51", "H1TO10", "H1IR16"),
+      general = c(96, 98, 99), source = inhome)
+  add(c("H1TO5", "H1FP5D", "H1NF8", "H1NF9", paste0("H1HR10", LETTERS[1:20])),
+      general = c(96, 98, 99), skip = 97, source = inhome)
+  add(c("H1TO11", "H1TO14", "H1NM3", "H1NM8"),
+      general = c(96, 98), skip = 97, source = inhome)
+  add("H1NF3", general = 98, skip = 97, source = inhome)
+  add("H1NM9", general = c(98, 99), skip = 97, source = inhome)
+  
+  # Introductory Guide documents genuine value/reserve-code collisions.
+  # Preserve those ambiguous values, but restore separately identifiable skips.
+  add(c("H1TO7", "H1TO16"), skip = 97, source = inhome)
+  add(c("H1EE5", "H1EE7"), skip = 997, source = inhome)
+  add(paste0("H1IR8", LETTERS[1:4]), skip = 7, source = inhome)
+  add("H1IR13", general = 99, skip = 97, source = inhome)
+  rules
+})
 
 # =============================================================================

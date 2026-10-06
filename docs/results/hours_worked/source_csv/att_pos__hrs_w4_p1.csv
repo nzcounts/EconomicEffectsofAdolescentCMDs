@@ -1,0 +1,12 @@
+metric,value
+n_treated,1342
+n_control,12158
+g_treated_min,0.0052353726693024
+g_treated_median,0.217104049840758
+g_treated_max,0.895495620162526
+control_oddsw_median,0.0364190305659746
+control_oddsw_p95,0.432449552416373
+control_oddsw_p99,1.18682539174003
+control_oddsw_max,7.24933322610001
+control_oddsw_frac_gt_10,0
+control_oddsw_frac_gt_50,0

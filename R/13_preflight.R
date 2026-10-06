@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 13493-15065.
-# Module role: Synthetic preflight test.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 11) PREFLIGHT UNIT TEST (synthetic data)
 # =============================================================================
 # Plain-English role: a fast end-to-end run on a tiny synthetic dataset to
@@ -58,8 +53,235 @@ preflight_step <- function(label, expr) {
   })
 }
 
+run_configuration_path_tests <- function(cfg_template) {
+  equal <- function(x, y) isTRUE(all.equal(x, y, tolerance = 1e-10, check.attributes = FALSE))
+  fails <- function(expr) inherits(try(force(expr), silent = TRUE), "try-error")
+  checked <- character(0)
+  test <- function(label, expr) {
+    if (!isTRUE(force(expr))) stop("Configuration test failed: ", label, call. = FALSE)
+    checked <<- c(checked, label)
+  }
+  cc <- cfg_template
+  cc$analysis$protected_W_mode <- "items"
+  cc$analysis$dsp4_mode <- "audit_only"
+  cc$analysis$adaptive_g_truncation_apply <- FALSE
+  cc$global$save_stage_csvs <- TRUE
+  cc$final_tmle$protected_W_items <- paste0("H1FS", 1:19)
+  cc$final_tmle$protected_W_summary <- "MHSum_W1"
+  cc$causal_governance$additional_mandatory_W <- character(0)
+  test("item mode does not force total", identical(get_mandatory_W(cc), paste0("H1FS", 1:19)))
+  cc$analysis$protected_W_mode <- "summary"
+  test("summary protection", identical(get_mandatory_W(cc), "MHSum_W1"))
+  cc$analysis$protected_W_mode <- "both"
+  test("combined protection", length(get_mandatory_W(cc)) == 20L)
+  raw <- as.data.frame(matrix(0, 3L, 19L)); names(raw) <- paste0("H1FS", 1:19)
+  raw[1, c(4,8,11,15)] <- 3
+  raw[2, setdiff(1:19,c(4,8,11,15))] <- 3
+  raw[3, 1] <- 8
+  test("CES-D endpoints and complete-item missingness", equal(score_wave1_cesd(raw), c(0,57,NA)))
+  test("CES-D one-row input", equal(score_wave1_cesd(raw[1,,drop=FALSE]), 0))
+  registry <- build_wave1_variable_source_registry(list(wave1_inhome = raw), cc)
+  registry <- append_derived_variable_registry(registry, "MHSum_W1", names(raw), "wave1_inhome")
+  test("all 19 summary parents verified and stored", nrow(registry) == 20L &&
+         registry$derived_from[registry$raw_variable == "MHSum_W1"] == paste(names(raw), collapse=";"))
+  test("invalid summary parent rejected", fails(append_derived_variable_registry(registry, "bad", "absent", "wave1_inhome")))
+  p <- c(.2,.2,.6,.9); y <- c(0,1,0,1); w <- c(1,3,2,1)
+  iso <- fit_probability_calibrator(p,y,w,"isotonic")
+  test("weighted isotonic ties and pooling", equal(predict_probability_calibrator(iso,p), c(.5,.5,.5,1)))
+  order2 <- c(4,2,1,3)
+  iso2 <- fit_probability_calibrator(p[order2],y[order2],w[order2],"isotonic")
+  test("isotonic permutation invariance", equal(predict_probability_calibrator(iso2,p), predict_probability_calibrator(iso,p)))
+  iso3 <- fit_probability_calibrator(rep(p,w),rep(y,w),rep(1,sum(w)),"isotonic")
+  test("survey weights agree with replicated-data answer", equal(predict_probability_calibrator(iso3,p), predict_probability_calibrator(iso,p)))
+  test("isotonic boundaries", equal(predict_probability_calibrator(iso,c(0,1)), c(.5,1)))
+  constant <- fit_probability_calibrator(rep(.5,4),y,w,"platt")
+  test("constant-score weighted calibration", equal(predict_probability_calibrator(constant,p),rep(4/7,4)))
+  pp <- rep(stats::plogis(seq(-2,2,length.out=5)),each=10)
+  yy <- unlist(lapply(c(1,3,5,7,9), function(k) c(rep(1,k),rep(0,10-k))))
+  pl <- fit_probability_calibrator(pp,yy,rep(1,50),"platt")
+  test("Platt finite monotone predictions", all(is.finite(pl$coefficients)) && pl$coefficients[2] > 0)
+  test("calibration rejects invalid weights", fails(fit_probability_calibrator(p,y,c(1,0,1,1),"isotonic")))
+  mock <- list(Z=cbind(pp,pp), coef=c(.4,.6))
+  cal <- calibrate_outer_predictions(mock,yy,rep(1,50),c(.3,.6,.8),"platt",1L,"g")
+  test("outer calibration uses training scores", equal(cal$prediction,predict_probability_calibrator(pl,c(.3,.6,.8))) &&
+         cal$audit$calibration_labels == "outer_training_only")
+  badmock <- mock; badmock$Z[1,1] <- NA
+  test("incomplete inner scores rejected", fails(calibrate_outer_predictions(badmock,yy,rep(1,50),.5,"platt",1L,"g")))
+  # Verify numeric total preprocessing for every representation, including a
+  # missing total. Its full 0:57 range must survive training preprocessing.
+  dat <- as.data.frame(lapply(1:19, function(j) rep(0:3, length.out=120)))
+  names(dat) <- paste0("H1FS",1:19)
+  dat$MHSum_W1 <- c(NA, seq(0,57,length.out=119))
+  dat[[cc$analysis$exposure_var]] <- rep(0:1,60)
+  cc$preprocessing$global_missing_dictionary <- setNames(lapply(names(dat), function(nm)
+    make_native_only_missing_rule(dat[[nm]],nm)),names(dat))
+  for (nm in paste0("H1FS",1:19)) cc$preprocessing$global_missing_dictionary[[nm]]$as_factor <- TRUE
+  for (mode in c("items","summary","both")) {
+    cc$analysis$protected_W_mode <- mode
+    pack <- build_final_W_train_valid(dat,dat,c(paste0("H1FS",1:19),"MHSum_W1"),cc)
+    test(paste("design has mandatory columns",mode), all(get_mandatory_W(cc) %in% pack$processed_raw_map))
+  }
+  rec <- learn_final_missing_recipe(dat["MHSum_W1"],cc$preprocessing)
+  test("total remains numeric", rec$MHSum_W1$type == "numeric")
+  prep <- prep_numeric_train(0:57,cc$final_preprocess,cc$preprocessing,variable_name="MHSum_W1")
+  test("total tails not winsorized", all(is.infinite(prep$win_q)))
+  cc$outcome$family <- "HoursWorked"; cc$outcome$current_wave <- 4L; cc$outcome$waves <- 4L
+  cc$mortality_sensitivity$enabled <- FALSE
+  d <- data.frame(AID=c("1","2","3"),Y=c(NA,20,10))
+  names(d)[1:2] <- c(cc$analysis$id_var,cc$analysis$outcome_var)
+  s <- data.frame(AID=c("3","1","2"),wave=4,family="HoursWorked",status_zero=c(0,1,1),
+                  reference_verified=1,reason=c("eligible","incarcerated","nonresident"),
+                  reference_period="current Wave-IV endpoint",evidence_source="synthetic adjudication")
+  names(s)[1] <- cc$analysis$id_var
+  cc$analysis$dsp4_mode <- "composite"
+  z <- apply_verified_labor_status(d,cc,s)
+  test("verified status joins by ID and handles observed/missing", equal(z$data[[cc$analysis$outcome_var]],c(0,0,10)))
+  cc$analysis$dsp4_mode <- "exclude_sensitivity"
+  z <- apply_verified_labor_status(d,cc,s)
+  test("exclusion flags without changing outcomes", equal(z$data[[cc$analysis$outcome_var]],d[[cc$analysis$outcome_var]]) && equal(z$data$.status_excluded,c(TRUE,TRUE,FALSE)))
+  test("status coverage required", fails(apply_verified_labor_status(d,cc,s[-1,])))
+  test("duplicate status IDs rejected", fails(apply_verified_labor_status(d,cc,rbind(s,s[1,]))))
+  bads <- s; bads$reference_verified[2] <- 0
+  test("unverified status rejected", fails(apply_verified_labor_status(d,cc,bads)))
+  unresolved <- s
+  unresolved$status_zero[2] <- 0L
+  unresolved$reference_verified[2] <- 0L
+  unresolved$reason[2] <- "unresolved"
+  for (status_mode in c("composite", "exclude_sensitivity")) {
+    cc$analysis$dsp4_mode <- status_mode
+    z_unresolved <- apply_verified_labor_status(d, cc, unresolved)
+    test(paste("unresolved status preserved", status_mode),
+         is.na(z_unresolved$data[[cc$analysis$outcome_var]][1]) &&
+           !z_unresolved$data$.status_excluded[1] && z_unresolved$audit$n_unresolved == 1L)
+  }
+  bads <- s; bads$reason[2] <- "deceased"
+  test("deaths not disposition-zeroed", fails(apply_verified_labor_status(d,cc,bads)))
+  cc$outcome$family <- "Compensation"
+  test("annual earnings recoding blocked", fails(apply_verified_labor_status(d,cc,s)))
+  cc$outcome$family <- "HoursWorked"; cc$analysis$dsp4_mode <- "audit_only"; cc$analysis$enable_dsp4_audit <- TRUE
+  dsp <- data.frame(AID=c("1","2","3"),DSP4=c(459,477,NA))
+  names(dsp)[1] <- cc$analysis$id_var
+  aud <- build_disposition_audit(d,cc,dsp)
+  test("disposition missing-code audit retains all rows", sum(aud$n) == 3L && sum(aud$n_outcome_observed) == 2L)
+  cc$analysis$adaptive_g_truncation_apply <- TRUE
+  test("unsupported post-estimation clip selection fails early", fails(validate_cfg(cc)))
+  cc$analysis$adaptive_g_truncation_apply <- FALSE
+  cc$global$pipeline_source_path <- cfg_template$global$pipeline_source_path
+  f0 <- make_main_dataset_cache_fingerprint(cc)
+  cc$analysis$restrict_wave1_depressed <- !isTRUE(cc$analysis$restrict_wave1_depressed)
+  test("subgroup switch invalidates dataset cache", !identical(f0,make_main_dataset_cache_fingerprint(cc)))
+  f0 <- make_main_dataset_cache_fingerprint(cc); cc$analysis$wave1_depression_cutpoint <- 21
+  test("baseline threshold invalidates dataset cache", !identical(f0,make_main_dataset_cache_fingerprint(cc)))
+  f0 <- make_main_dataset_cache_fingerprint(cc); cc$analysis$dsp4_mode <- "composite"
+  test("status definition invalidates dataset cache", !identical(f0,make_main_dataset_cache_fingerprint(cc)))
+  ac <- list(psi_att=-2,att_se=.5,inference_df=20,delta_Y=rep(1,4),
+             Y_bounded_orig=1:4,weights=rep(1,4),pi_AW=rep(1,4))
+  bias <- build_ovb_robustness_values(list(att_components=ac),cc)
+  test("fixed-bias point-null identity", equal(bias$adjusted_att[bias$assumed_estimator_bias == -2],0))
+  test("fixed-bias conditional intervals retain width", length(unique(round(bias$conditional_ci_upper-bias$conditional_ci_lower,10))) == 1L)
+  data.frame(test=checked,status="pass",stringsAsFactors=FALSE)
+}
+
+# Fast regression checks for the recorded-status path and saved calibration data.
+run_status_and_review_self_test <- function(cfg) {
+  cc <- cfg
+  cc$outcome$family <- "HoursWorked"; cc$outcome$current_wave <- 4L; cc$outcome$waves <- 4L
+  cc$analysis$dsp4_mode <- "composite"
+  cc$mortality_sensitivity$enabled <- TRUE
+  id <- cc$analysis$id_var; yv <- cc$analysis$outcome_var
+  dv <- resolve_mortality_spec(cc,4L)$death_before_outcome_var
+  m <- data.frame(id=as.character(1:20), y=c(rep(35,8),rep(NA_real_,10),35,0))
+  names(m) <- c(id,yv); m[[dv]] <- as.integer(1:20==14); m[[yv]][14] <- 0
+  w <- data.frame(id=as.character(c(1:8,19,20)),PRISON4=c(0,0,1,0,0,0,0,0,0,0),
+    H4MI1=c(0,1,0,1,1,1,1,1,0,0), H4MI3=c(7,1,7,0,1,1,1,1,1,1),
+    H4MI6A=c(7,1,7,1,1,1,0,8,1,1), H4MI6B=c(7,0,7,0,1,1,1,8,0,0),
+    H4MI6C=c(7,0,7,0,0,0,0,8,0,0), H4MI7=c(7,7,7,7,1,2,7,7,1,1))
+  names(w)[1] <- id
+  dsp <- data.frame(id=as.character(1:20),DSP4=c(rep(491,8),477,613,486,460,459,459,478,482,NA,480,491,491))
+  names(dsp)[1] <- id
+  s <- build_documented_military_prison_status(m,cc,w,dsp)
+  stopifnot(identical(which(s$status_zero==1L),c(2L,3L,5L,9L,10L,11L,15L,16L)),
+    all(s$reference_verified[c(8,12,13,17:20)]==0),
+    s$reason[14]=="mortality_handled_separately",all(s$military_response_conflict[19:20]))
+  shuffled <- build_documented_military_prison_status(m,cc,w[nrow(w):1,],dsp[20:1,])
+  stopifnot(identical(s,shuffled))
+  fail <- function(expr) inherits(try(force(expr),silent=TRUE),"try-error")
+  stopifnot(fail(build_documented_military_prison_status(m,cc,rbind(w,w[1,]),dsp)))
+  z <- apply_verified_labor_status(m,cc,s)
+  out <- z$data; ob <- resolve_composite_observation(out,cc)
+  stopifnot(identical(which(ob$structural_zero),c(2L,3L,5L,9L,10L,11L,14L,15L,16L)),
+    all(is.na(out[[yv]][c(8,12,13,17:19)])), out[[yv]][20]==0,
+    all(out[[yv]][c(1,4,6,7)]==35), ob$S[19]==1L, ob$response[19]==0L,
+    z$audit$n_unresolved_nonzero_masked==2L,
+    identical(as.character(z$details[[id]]),as.character(m[[id]])))
+  bad <- out; bad[[yv]][19] <- 35
+  stopifnot(fail(resolve_composite_observation(bad,cc)))
+  bad <- s; bad$reference_verified[2] <- 0L
+  stopifnot(fail(apply_verified_labor_status(m,cc,bad)))
+  ca <- cc; ca$analysis$enable_dsp4_audit <- TRUE
+  da <- build_disposition_audit(out,ca,dsp)
+  stopifnot(sum(da$n_disposition_death_without_dated_confirmation)==1L)
+  no_mort <- cc; no_mort$mortality_sensitivity$enabled <- FALSE
+  m0 <- m; m0[[dv]] <- NULL
+  stopifnot(nrow(build_documented_military_prison_status(m0,no_mort,w,dsp))==20L)
+  cc$analysis$dsp4_mode <- "auto_verified"; cc$analysis$auto_military_prison_status <- TRUE
+  stopifnot(resolve_status_mode(cc)=="composite")
+  local_apply <- apply_verified_labor_status
+  env <- new.env(parent=environment(local_apply))
+  env$read_xpt_df <- function(path) {
+    if (identical(path,cc$paths$wave4_inhome)) w else
+      if (identical(path,cc$paths$wave4_disposition)) dsp else stop("Unexpected status source")
+  }
+  environment(local_apply) <- env
+  stopifnot(identical(local_apply(m,cc)$data,out))
+  conflicting <- w; conflicting$H4MI6A[5] <- 0
+  stopifnot(build_documented_military_prison_status(m,cc,conflicting,dsp)$reason[5]=="unresolved")
+  batch <- cc; batch$outcome$family <- "LaborForceParticipation"
+  batch$outcome$current_wave <- NULL; batch$outcome$waves <- c(3L,4L)
+  batch <- apply_outcome_runtime_defaults(batch)
+  stopifnot(batch$analysis$dsp4_mode=="auto_verified")
+  batch$outcome$current_wave <- 3L
+  stopifnot(resolve_status_mode(batch)=="audit_only")
+  batch$outcome$current_wave <- 4L
+  stopifnot(resolve_status_mode(batch)=="composite")
+  batch$outcome$current_wave <- NULL; batch$outcome$waves <- "all"
+  stopifnot(resolve_status_mode(batch)=="audit_only")
+  cc$outcome$family <- "Compensation"
+  stopifnot(resolve_status_mode(cc)=="audit_only")
+  # A deterministic response fold still has an auditable calibration archive.
+  ar <- capture_calibration_training(NULL,c(1,1),c(2,3),c("a","b"),c("1","2"),1,constant=1)
+  stopifnot(all(ar$data$score==1),identical(ar$data$respondent_id,c("a","b")))
+  sl <- list(Z=cbind(c(.1,.3,.6,.9),c(.2,.4,.5,.8)),coef=c(.4,.6))
+  ar <- capture_calibration_training(sl,c(0,0,1,1),rep(1,4),letters[1:4],1:4,1)
+  stopifnot(isTRUE(all.equal(ar$data$score,as.numeric(sl$Z %*% sl$coef))))
+  cat("Status and calibration archive regression checks passed.\n")
+  invisible(TRUE)
+}
+
 run_preflight_unit_test <- function(cfg_template) {
   message("=== Preflight unit test: raw-dollar joint ATT + percentage inference ===")
+  run_v840_self_test(cfg_template)
+  run_v842_self_test(cfg_template)
+  run_v843_self_test(cfg_template)
+  run_exposure_mode_self_test(cfg_template)
+  # Synthetic cross-outcome fixtures must not inherit a real-data status-file
+  # restriction. Entry points validate the actual requested config first;
+  # status transformations themselves have explicit fixture tests above.
+  cfg_template$final_tmle$g_lower_rule <- "fixed"
+  cfg_template$analysis$dsp4_mode <- "audit_only"
+  cfg_template$analysis$auto_military_prison_status <- FALSE
+  cfg_template$analysis$restrict_wave1_depressed <- FALSE
+  # Synthetic fixtures contain no Wave-III file; the scope logic has its own test.
+  # A non-default scope also switches the policy translation off for the real
+  # run; the synthetic fixtures still exercise the complete policy path.
+  cfg_template$exposure$exposure_mode <- "wave2_only"
+  cfg_template$policy$enable_policy_components <- TRUE
+  cfg_template$policy$enable_att_prevalence_translation <- TRUE
+  # The fixed reference fixture has exactly these baseline columns. Real-data
+  # representation choices are covered separately by configuration-path tests.
+  cfg_template$analysis$protected_W_mode <- cfg_template$analysis$protected_W_mode %||% "summary"
+  cfg_template$final_tmle$protected_W_items <- paste0("H1FS", 1:19)
+  cfg_template$causal_governance$additional_mandatory_W <- character(0)
   had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
   on.exit({
@@ -71,34 +293,41 @@ run_preflight_unit_test <- function(cfg_template) {
     pipeline_script_fingerprint(
       cfg_template, strict = isTRUE(cfg_template$global$require_script_md5 %||% FALSE))
   })
+  preflight_step("configuration paths, calibration, scoring and status guards", {
+    run_configuration_path_tests(cfg_template)
+    run_status_and_review_self_test(cfg_template)
+  })
   set.seed(1L)
+  preflight_step("600-row sequential composite known-answer test", {
+    run_sequential_composite_self_test(cfg_template)
+  })
   preflight_step("whole-PSU fold-engine stress test", {
     run_fold_engine_stress_test(cfg_template)
   })
   set.seed(1L)
   n <- 1200L; J <- 80L
   cluster <- sample(rep(seq_len(J), length.out = n), size = n, replace = FALSE)
-
+  
   # Baseline Wave I Feelings Scale block, the exact protected set used in the
   # production analysis. These are generated before A and Y so they are genuine
   # pre-exposure confounders in the synthetic target trial.
   h1fs <- replicate(19L, sample(0:3, n, replace = TRUE,
-                               prob = c(.58, .27, .11, .04)))
+                                prob = c(.58, .27, .11, .04)))
   colnames(h1fs) <- paste0("H1FS", 1:19)
   mh0 <- rowSums(h1fs[, c(1:3,5:7,9:10,12:14,16:19), drop=FALSE]) -
-         rowSums(h1fs[, c(4,8,11,15), drop=FALSE])
+    rowSums(h1fs[, c(4,8,11,15), drop=FALSE])
   W1 <- stats::rnorm(n); W2 <- stats::rbinom(n, 1, 0.35)
   AH_PVT <- 100 + 15 * (0.45 * W1 + stats::rnorm(n, sd = 0.9))
   pA <- stats::plogis(-3.0 + 0.055 * mh0 + 0.40 * W1 + 0.35 * W2 -
-                      0.006 * (AH_PVT - 100))
+                        0.006 * (AH_PVT - 100))
   A <- stats::rbinom(n, 1, pA)
   # Guarantee enough treated observations for nested whole-cluster CV.
   min_preflight_treated <- 140L
   if (sum(A) < min_preflight_treated)
     A[order(pA, decreasing = TRUE)[seq_len(min_preflight_treated)]] <- 1L
-
+  
   Y <- 30000 - 6500 * A + 320 * mh0 + 2800 * W1 + 1800 * W2 +
-       stats::rnorm(n, sd = 11000)
+    stats::rnorm(n, sd = 11000)
   Y <- pmax(0, Y)
   Y[1:15] <- 0
   extreme_values <- c(150000, 180000, 220000, 280000, 350000,
@@ -121,7 +350,7 @@ run_preflight_unit_test <- function(cfg_template) {
   if (any(preflight_cell_counts < 5L))
     stop ("Preflight synthetic data lack adequate A-by-delta support.", call. = FALSE)
   Y_obs <- ifelse(delta == 1L, Y, NA_real_)
-
+  
   region_by_cluster <- setNames(rep(1:4, length.out = J), as.character(seq_len(J)))
   df <- data.frame(
     AID = seq_len(n), PSUSCID = cluster,
@@ -132,7 +361,8 @@ run_preflight_unit_test <- function(cfg_template) {
     W3 = stats::rnorm(n), W4 = sample(1:4, n, replace = TRUE),
     check.names = FALSE)
   for (j in seq_len(ncol(h1fs))) df[[colnames(h1fs)[j]]] <- h1fs[,j]
-  synthetic_registry_vars <- c("W1", "W2", "W3", "W4", "AH_PVT", colnames(h1fs))
+  df$MHSum_W1 <- score_wave1_cesd(df)
+  synthetic_registry_vars <- c("W1", "W2", "W3", "W4", "AH_PVT", colnames(h1fs), "MHSum_W1")
   synthetic_registry <- data.frame(
     source = "synthetic_wave1",
     raw_variable = synthetic_registry_vars,
@@ -141,7 +371,7 @@ run_preflight_unit_test <- function(cfg_template) {
     stringsAsFactors = FALSE)
   synthetic_registry <- validate_variable_source_registry(synthetic_registry)
   attr(df, "variable_source_registry") <- synthetic_registry
-
+  
   # Add valid-weight Wave-I respondents outside the complete-CES-D analytic
   # domain so preflight exercises survey-domain rather than subset-only EIF
   # variance estimation. They retain the same PSU-to-REGION mapping but never
@@ -159,7 +389,7 @@ run_preflight_unit_test <- function(cfg_template) {
   full_design$.analysis_domain <- TRUE
   full_design <- rbind(full_design, outside)
   attr(df, "survey_design_frame") <- full_design
-
+  
   cfg_design_test <- cfg_template
   cfg_design_test$analysis$enforce_expected_sample_gates <- TRUE
   cfg_design_test$analysis$expected_final_n <- nrow(df)
@@ -197,7 +427,7 @@ run_preflight_unit_test <- function(cfg_template) {
         !setequal(design_audit$field, c("PSUSCID", "REGION")))
       stop("canonical design-field audit did not preserve both fields.", call. = FALSE)
   })
-
+  
   preflight_step("redundancy assignment and denominator", {
     zz <- seq(-2, 2, length.out = 120L)
     red_X <- data.frame(red_a = zz, red_b = zz,
@@ -213,7 +443,7 @@ run_preflight_unit_test <- function(cfg_template) {
         !isTRUE(all.equal(red_frac, 1 / 3, tolerance = 1e-12)))
       stop("redundancy assignments or all-candidate denominator are incorrect.", call. = FALSE)
   })
-
+  
   preflight_step("combined nuisance learner library activation", {
     cfg_sens <- cfg_template
     cfg_sens$learners$g$use_glmnet_h1fs <- TRUE
@@ -226,7 +456,7 @@ run_preflight_unit_test <- function(cfg_template) {
         "SL.glmnet.pi_A_unpenalized" %in% lib_g)
       stop("Combined nuisance sensitivity learners were not scoped to the intended nuisance models.", call. = FALSE)
   })
-
+  
   preflight_step("real H1FS-prioritized g glmnet machinery", {
     if (!requireNamespace("glmnet", quietly = TRUE))
       stop("glmnet is required for the H1FS-prioritized g learner preflight.",
@@ -270,7 +500,7 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("H1FS-prioritized g learner did not apply the intended penalty factors.",
            call. = FALSE)
   })
-
+  
   preflight_step("pi counterfactual block signed contrast", {
     set.seed(9091)
     npi <- 240L
@@ -288,8 +518,8 @@ run_preflight_unit_test <- function(cfg_template) {
     if (!is.finite(signed) || signed < 0.15 || !is.finite(observed_match) || observed_match > 1e-12)
       stop("pi signed counterfactual preflight failed, observed-treatment extraction failed, or blocks may be reversed.",call.=FALSE)
   })
-
-
+  
+  
   preflight_step("real SuperLearner pi treatment-response machinery", {
     if (!requireNamespace("SuperLearner", quietly = TRUE) ||
         !requireNamespace("glmnet", quietly = TRUE))
@@ -311,7 +541,7 @@ run_preflight_unit_test <- function(cfg_template) {
     # Guarantee all A-by-delta cells and every cluster-fold have support.
     if (any(table(Api, dpi) < 10L))
       stop("Synthetic pi machinery data lack A-by-delta support.", call. = FALSE)
-
+    
     cfg_pi <- cfg_template
     cfg_pi$learners$pi$use_glmnet_A_unpenalized <- TRUE
     register_custom_learners(cfg_pi)
@@ -378,7 +608,7 @@ run_preflight_unit_test <- function(cfg_template) {
         "A effect, or observed-treatment block extraction failed."),
         call. = FALSE)
   })
-
+  
   preflight_step("weighted AUROC tie handling", {
     auc_tie <- weighted_auc_tie_corrected(
       y = c(1L, 0L), score = c(0.5, 0.5), w = c(1, 1))
@@ -391,7 +621,7 @@ run_preflight_unit_test <- function(cfg_template) {
         !isTRUE(all.equal(auc_reverse, 0, tolerance = 1e-12)))
       stop("Weighted AUROC tie correction is incorrect.", call. = FALSE)
   })
-
+  
   preflight_step("named learner-risk parsing", {
     metric_test <- parse_named_metric_string(
       "SL.mean_All=0.125;SL.glmnet.fixed_All=0.100",
@@ -402,7 +632,7 @@ run_preflight_unit_test <- function(cfg_template) {
         !isTRUE(all.equal(metric_test$cv_risk, c(0.125, 0.100))))
       stop("named learner-risk parser is incorrect.", call. = FALSE)
   })
-
+  
   preflight_step("sparse balance and love-plot exclusion", {
     sparse_x <- rep(NA_real_, 40L)
     sparse_x[c(1:4, 21:24)] <- c(1:4, 2:5)
@@ -442,7 +672,7 @@ run_preflight_unit_test <- function(cfg_template) {
                     silent = TRUE), "try-error"))
     stop("Preflight FAILED: the treated-count gate did not stop under an intentionally mismatched alternative-cutpoint count.",
          call. = FALSE)
-
+  
   cfg_pre <- cfg_template
   cfg_pre$stages <- list(
     run_preflight_unit_test = FALSE,
@@ -458,9 +688,21 @@ run_preflight_unit_test <- function(cfg_template) {
   cfg_pre$global$checkpoint_subdir <- "fresh_preflight_checkpoints"
   cfg_pre$global$verbose <- TRUE
   cfg_pre$outcome$log_transform <- FALSE
+  cfg_pre$outcome$family <- "Compensation"
+  cfg_pre$outcome$waves <- 4L
+  cfg_pre$outcome$compensation_transform <- "identity"
   cfg_pre$outcome$continuous_upper_quantile <- cfg_template$outcome$continuous_upper_quantile
   cfg_pre$outcome$continuous_bound_eps <- 0
   cfg_pre$outcome$current_wave <- 4L
+  cfg_pre$analysis$dsp4_mode <- "audit_only"
+  preflight_dv <- resolve_mortality_spec(cfg_pre,4L)$death_before_outcome_var
+  df[[preflight_dv]] <- 0L
+  # Exercise the eligibility fit and known-zero path in the REAL SL driver.
+  death_candidates <- setdiff(seq_len(nrow(df)),c(extreme_idx,1:15))
+  death_rows <- c(head(death_candidates[df$Depressed[death_candidates]==1L],15L),
+                  head(death_candidates[df$Depressed[death_candidates]==0L],25L))
+  df[[preflight_dv]][death_rows] <- 1L
+  df$Y[death_rows] <- 0;df$delta_Y[death_rows] <- 1L
   cfg_pre$outcome$family_member <- NULL
   cfg_pre$analysis$outcome_type <- "continuous"
   cfg_pre$analysis$enforce_expected_sample_gates <- FALSE
@@ -489,7 +731,7 @@ run_preflight_unit_test <- function(cfg_template) {
   cfg_pre$final_tmle$cluster_aware_internal_cv <- TRUE
   cfg_pre$final_tmle$outer_fold_balance_on_weights <- FALSE
   cfg_pre$final_tmle$internal_fold_balance_on_weights <- FALSE
-  cfg_pre$final_tmle$fold_max_attempts <- 500L
+  cfg_pre$final_tmle$fold_max_attempts <- 30L # synthetic fixture only; retain hard fold gates
   cfg_pre$final_tmle$fold_max_size_ratio <- 1.60
   cfg_pre$final_tmle$fold_max_size_deviation_prop <- 0.35
   cfg_pre$final_tmle$fold_internal_max_size_ratio <- 1.75
@@ -515,7 +757,7 @@ run_preflight_unit_test <- function(cfg_template) {
   attr(df, "global_missing_dictionary") <- preflight_dictionary
   attr(df, "variable_source_registry") <- synthetic_registry
   cfg_pre$preprocessing$global_missing_dictionary <- preflight_dictionary
-
+  
   preflight_step("main-cache fingerprint covers compensation transformations", {
     f0 <- make_main_dataset_cache_fingerprint(cfg_pre, df)
     cfg_changed <- cfg_pre
@@ -529,7 +771,7 @@ run_preflight_unit_test <- function(cfg_template) {
     if (identical(f0, f2))
       stop("Main-data fingerprint ignored compensation_transform.", call. = FALSE)
   })
-
+  
   # Stage-switch/cache regression test. A disabled build stage must load a
   # fingerprint-compatible artifact, preserve the frozen dictionary and survey
   # design attributes, and reject a stale cache rather than passing NULL or
@@ -555,6 +797,10 @@ run_preflight_unit_test <- function(cfg_template) {
   attr(main_cache_test, "global_missing_dictionary") <- preflight_dictionary
   attr(main_cache_test, "variable_source_registry") <- synthetic_registry
   attr(main_cache_test, "survey_design_frame") <- full_design
+  attr(main_cache_test, "wave2_completion_status") <- data.frame(
+    AID = main_cache_test[[cfg_pre$analysis$id_var]],
+    wave2_cesd_complete = 1L, stringsAsFactors = FALSE)
+  names(attr(main_cache_test, "wave2_completion_status"))[1L] <- cfg_pre$analysis$id_var
   save_main_dataset_cache(main_cache_test, main_cache_path, cfg_pre, w1_cache_test)
   main_loaded <- obtain_main_dataset_for_run(
     cfg_pre, w1_loaded, main_cache_path, allow_build = FALSE)
@@ -572,7 +818,7 @@ run_preflight_unit_test <- function(cfg_template) {
   }, error = function(e) TRUE)
   if (!stale_caught)
     stop("Preflight FAILED: disabled Wave-I stage accepted a stale cache fingerprint.", call. = FALSE)
-
+  
   # Exercise every learner enabled in the primary production library, using
   # smaller preflight iteration counts so the test remains practical. Optional
   # sensitivity-only learners cannot gate the primary run.
@@ -580,7 +826,7 @@ run_preflight_unit_test <- function(cfg_template) {
   cfg_pre$learners$xgboost$ntrees <- 25L
   cfg_pre$learners$glmnet$nlambda <- 30L
   cfg_pre$learners$glmnet$internal_folds <- 3L
-
+  
   # Explicit H4EC2/H4EC3 construction test: zero stays zero; the valid maximum
   # remains valid; refusal/DK exact values fall back only to valid brackets.
   fam <- cfg_pre$outcome$families$Compensation
@@ -591,7 +837,48 @@ run_preflight_unit_test <- function(cfg_template) {
     stop("Preflight FAILED: explicit compensation construction is incorrect.", call. = FALSE)
   if (!identical(ec$source, c("exact", "exact", "bracket_midpoint", "bracket_midpoint")))
     stop("Preflight FAILED: compensation source classification is incorrect.", call. = FALSE)
-
+  
+  # Exact codebook rules, valid look-alikes, suffix-safe joins and real skips.
+  check_codes <- function(nm, values, general, skip = integer(0)) {
+    rule <- learn_conservative_missing_rule(values, cfg_pre$preprocessing, nm)
+    masks <- missing_masks_from_rule(values, rule)
+    if (!identical(which(masks$general), as.integer(general)) ||
+        !identical(which(masks$skip), as.integer(skip)))
+      stop("Preflight FAILED: exact codebook rule for ", nm, call. = FALSE)
+  }
+  check_codes("C1LE004.x", c(8, 9, 98, NA), c(3, 4))
+  check_codes("C1EC003M", c(-1.3, 1.14, 2, 8), c(3, 4))
+  check_codes("C1EC002", c(33, 55.7, 92, 98), c(3, 4))
+  check_codes("S1CT001", c(.05, .55, 8), 3)
+  check_codes("STC9506", c(200, 4000, 99998, 999998), 4)
+  check_codes("STC9509", c(3300, 6700, 99998), 3)
+  check_codes("STC9523", c(4, 6, 7, 8, 98), 5)
+  check_codes("W1PCC290", c(6, 7, 8, 9, 10, 98), 6)
+  check_codes("W1PCS192", c(-.2, .4, 7, 8), 4, 3)
+  check_codes("RIWA001", c(1, 6, 7, 8, 98), 5)
+  check_codes("RIWA002", c(1, 8, 13, 995, 996, 998), 4:6)
+  check_codes("RPDA003", c(0, 1, 96, 98), 3:4)
+  check_codes("H1GH51", c(6, 8, 9, 20, 96, 98, 99), 5:7)
+  check_codes("H1TO5", c(0, 6, 7, 8, 9, 30, 96, 97, 98, 99), c(7, 9, 10), 8)
+  check_codes("H1HR10A", c(0, 8, 19, 96, 97, 98, 99), c(4, 6, 7), 5)
+  check_codes("H1TO7", c(8, 96, 97, 98, 99), integer(0), 3)
+  check_codes("H1EE7", c(8, 996, 997, 998, 999), integer(0), 3)
+  check_codes("H1IR8A", c(0, 6, 7, 8), integer(0), 3)
+  check_codes("H1IR13", c(6, 7, 8, 97, 99), 5, 4)
+  check_codes("RIWA002", c(NA_real_, NA_real_), 1:2)
+  
+  # Explicit no qualifying job -> zero; unresolved work/job-count -> missing.
+  hours_routes <- data.frame(
+    H4LM6 = c(NA, NA, NA, 1, NA), H4LM11 = c(0, NA, 1, 7, 1),
+    H4LM12 = c(97, NA, 1, 98, NA), H4LM13 = c(997, NA, 997, 45, NA),
+    H4LM19 = c(997, NA, 40, 997, 40))
+  hours_check <- construct_outcome_hours_worked(
+    hours_routes, 4L, cfg_pre$outcome$families$HoursWorked, cfg_pre$outcome, NULL)
+  if (!identical(hours_check$Y, c(0, NA_real_, 40, 45, NA_real_)) ||
+      as.numeric(hours_check$audit$value[
+        hours_check$audit$metric == "n_route_missing"]) != 2)
+    stop("Preflight FAILED: hours missingness/route classification.", call. = FALSE)
+  
   # Source-informed exact-code classifier tests, grounded in Wave I
   # codebook patterns: H1FS-type 0-3 scales use 6/8/9; items with substantive
   # category 6 and observed 96/98 use the high family; long categorical items
@@ -602,7 +889,7 @@ run_preflight_unit_test <- function(cfg_template) {
   if (!setequal(qr$general_codes, c(6, 8, 9)) ||
       !setequal(qr$skip_codes, 7) || sum(qm$general) != 4L || sum(qm$skip) != 1L)
     stop("Preflight FAILED: low questionnaire exact-code classification is incorrect.", call. = FALSE)
-
+  
   # H1PR3-like support: category 6 is substantive because 96/98 identify the
   # high scheme. Exact 6 must survive.
   qhigh <- c(rep(1:6, each = 20), 96, 97, 98, 99)
@@ -611,7 +898,7 @@ run_preflight_unit_test <- function(cfg_template) {
   if (!setequal(qhr$general_codes, c(96, 98, 99)) ||
       !setequal(qhr$skip_codes, 97) || any(qhm$general[qhigh == 6]) || any(qhm$skip[qhigh == 6]))
     stop("Preflight FAILED: valid category 6 versus high 96-99 scheme is incorrect.", call. = FALSE)
-
+  
   # A substantive category 6 without observed 7/8/9 uses the high family;
   # exact 6 must not be reclassified as low-scheme refusal.
   q6_only <- rep(1:6, each = 20)
@@ -620,14 +907,14 @@ run_preflight_unit_test <- function(cfg_template) {
   if (any(q6m$general[q6_only == 6]) || any(q6m$skip[q6_only == 6]) ||
       !all(c(96, 98, 99) %in% q6r$general_codes) || !(97 %in% q6r$skip_codes))
     stop("Preflight FAILED: substantive category 6 was not protected by the high-code convention.", call. = FALSE)
-
+  
   # Common skips must remain recognized; prevalence is not a disqualifier.
   common_skip <- c(rep(1:5, each = 10), rep(7, 400), 6, 8, 9)
   csr <- learn_conservative_missing_rule(common_skip, cfg_pre$preprocessing, "H1TEST")
   csm <- missing_masks_from_rule(common_skip, csr)
   if (mean(csm$skip) < 0.80 || !setequal(csr$skip_codes, 7))
     stop("Preflight FAILED: common questionnaire skip was rejected by prevalence.", call. = FALSE)
-
+  
   # Learned family must transfer to validation without suffix matching.
   qtrain <- c(rep(1:5, each = 20), 96, 98, 99)
   qtrain_rule <- learn_conservative_missing_rule(qtrain, cfg_pre$preprocessing, "H1TEST2")
@@ -637,7 +924,7 @@ run_preflight_unit_test <- function(cfg_template) {
     stop("Preflight FAILED: learned exact-code family was not applied consistently to validation values.", call. = FALSE)
   
   qtrain_factor <- c(qtrain, rep(97,3L))
-
+  
   frec <- learn_final_missing_recipe(data.frame(H1TEST2 = factor(qtrain_factor)), cfg_pre$preprocessing)
   fapp <- apply_final_missing_recipe(
     data.frame(H1TEST2 = factor(c(97, 1), levels = c(1:5, 97))),
@@ -646,7 +933,7 @@ run_preflight_unit_test <- function(cfg_template) {
       as.character(fapp$H1TEST2[1L]) != (cfg_pre$preprocessing$factor_skip_label %||% "Skip") ||
       as.character(fapp$H1TEST2[2L]) == (cfg_pre$preprocessing$factor_missing_label %||% "Missing"))
     stop("Preflight FAILED: factor recipe did not preserve Skip as a level without duplicate indicators.", call. = FALSE)
-
+  
   # Fully nonnumeric categorical fields are valid native-missing-only factors;
   # removing blanket numeric coercion must not make dictionary construction fail.
   text_x <- c("urban", "rural", NA, "suburban", "urban")
@@ -716,7 +1003,7 @@ run_preflight_unit_test <- function(cfg_template) {
   if (isTRUE(text_rule$numeric_coded) || !isTRUE(text_rule$as_factor) ||
       sum(text_masks$general) != 1L || any(text_masks$skip))
     stop("Preflight FAILED: nonnumeric categorical native-missing handling is incorrect.", call. = FALSE)
-
+  
   # Broad bounded measures and dense counts must retain 96-99/6-9 when they
   # are ordinary values rather than questionnaire codes.
   broad <- rep(0:99, 2)
@@ -724,22 +1011,21 @@ run_preflight_unit_test <- function(cfg_template) {
   bm <- missing_masks_from_rule(broad, br)
   if (any(bm$general | bm$skip))
     stop("Preflight FAILED: valid broad 0-99 percentage values were misclassified as missing.", call. = FALSE)
-
+  
   count_0_9 <- rep(0:9, each = 20)
   c09r <- learn_conservative_missing_rule(count_0_9, cfg_pre$preprocessing, "CSTCOUNT")
   c09m <- missing_masks_from_rule(count_0_9, c09r)
   if (any(c09m$general | c09m$skip))
     stop("Preflight FAILED: dense substantive 0-9 count was misclassified.", call. = FALSE)
-
+  
   cont <- c(seq(0, 25000, by = 250), 196, 1297, 22198)
   cr <- learn_conservative_missing_rule(cont, cfg_pre$preprocessing, "CST90550")
   cm <- missing_masks_from_rule(cont, cr)
   if (any(cm$general | cm$skip))
     stop("Preflight FAILED: contextual/continuous values were misclassified by suffix.", call. = FALSE)
-
-  # Wider exact families remain available for unambiguous questionnaire
-  # variables, while named codebook-overlap variables preserve all finite codes
-  # as substantive and are flagged for audit.
+  
+  # Wider families remain available. Documented ambiguous response values are
+  # preserved, while separately identifiable legitimate skips remain skips.
   earnings_item <- c(0:900, rep(997, 2000), 996, 998, 999)
   er <- learn_conservative_missing_rule(earnings_item, cfg_pre$preprocessing, "H1MONEYTEST")
   em <- missing_masks_from_rule(earnings_item, er)
@@ -747,17 +1033,20 @@ run_preflight_unit_test <- function(cfg_template) {
       any(em$general[earnings_item == 196]) || any(em$skip[earnings_item == 197]))
     stop("Preflight FAILED: 996-999 wider family or ordinary 196/197 handling is incorrect.", call. = FALSE)
   overlap_rule <- learn_conservative_missing_rule(earnings_item, cfg_pre$preprocessing, "H1EE7")
-  if (length(overlap_rule$general_codes) || length(overlap_rule$skip_codes) ||
-      !grepl("preserved_as_substantive", overlap_rule$reason, fixed = TRUE))
-    stop("Preflight FAILED: known codebook-overlap values were not preserved as substantive.", call. = FALSE)
-
+  overlap_masks <- missing_masks_from_rule(earnings_item, overlap_rule)
+  if (length(overlap_rule$general_codes) ||
+      !setequal(overlap_rule$skip_codes, 997) ||
+      any(overlap_masks$general[earnings_item %in% c(996, 998, 999)]) ||
+      any(overlap_masks$skip[earnings_item %in% c(996, 998, 999)]))
+    stop("Preflight FAILED: ambiguous values or identifiable skips were misclassified.", call. = FALSE)
+  
   hours_item <- c(rep(0:99, 2), 996, 998)
   hir <- learn_conservative_missing_rule(hours_item, cfg_pre$preprocessing, "H1DA10")
   him <- missing_masks_from_rule(hours_item, hir)
   if (any(him$general[hours_item %in% 96:99]) ||
       !all(c(996, 998) %in% hir$general_codes))
     stop("Preflight FAILED: 0-99 numeric item versus 996-999 sentinel handling is incorrect.", call. = FALSE)
-
+  
   # H1TO37-like long factor: ages 0-18 include valid 6-9, while the
   # field-width reserve block is 996-999. The wider family must take precedence
   # and must not activate the low 6-9 scheme merely because the variable is a
@@ -769,14 +1058,14 @@ run_preflight_unit_test <- function(cfg_template) {
       !all(c(996, 998, 999) %in% air$general_codes) || !(997 %in% air$skip_codes) ||
       any(c(6, 7, 8, 9) %in% c(air$general_codes, air$skip_codes)))
     stop("Preflight FAILED: wider reserve family did not protect substantive 6-9 values.", call. = FALSE)
-
+  
   # A variable containing only a documented wider special-code family is
   # still classified correctly even when no ordinary response is observed.
   wide_only <- c(9996, 9997, 9998, 9999)
   wor <- learn_conservative_missing_rule(wide_only, cfg_pre$preprocessing, "H1WIDEONLY")
   if (!all(c(9996, 9998, 9999) %in% wor$general_codes) || !(9997 %in% wor$skip_codes))
     stop("Preflight FAILED: all-special wider family was not recognized.", call. = FALSE)
-
+  
   # If both a lower-family value (such as substantive 996) and a wider reserve
   # block (9996-9999) appear, select only the widest supported family.
   width_hierarchy <- c(0:999, 9996, 9997, 9998, 9999)
@@ -786,7 +1075,7 @@ run_preflight_unit_test <- function(cfg_template) {
       any(whm$skip[width_hierarchy %in% 996:999]) ||
       !all(c(9996, 9998, 9999) %in% whr$general_codes) || !(9997 %in% whr$skip_codes))
     stop("Preflight FAILED: widest exact field-width family was not selected.", call. = FALSE)
-
+  
   # Seven-digit exact earnings-style sentinels are supported for questionnaire
   # numeric sources, even when frequent; ordinary values below the sentinel block survive.
   wide7 <- c(0, 1000, 999995, rep(9999996, 100), 9999997, 9999998, 9999999)
@@ -796,7 +1085,7 @@ run_preflight_unit_test <- function(cfg_template) {
       999995 %in% c(w7r$general_codes, w7r$skip_codes) ||
       any(c(96, 97, 98, 99) %in% c(w7r$general_codes, w7r$skip_codes)))
     stop("Preflight FAILED: seven-digit exact sentinel handling is incorrect.", call. = FALSE)
-
+  
   # Existing long-factor declarations still force factorization. COMMID remains
   # a factor but is explicitly excluded from questionnaire missing-code logic.
   lf <- data.frame(PB7 = c(1:28, 96, 97), COMMID.x = c(1:28, 96, 97))
@@ -810,7 +1099,7 @@ run_preflight_unit_test <- function(cfg_template) {
   cmr <- learn_conservative_missing_rule(lf$COMMID.x, cfg_pre$preprocessing, "COMMID.x")
   if (!(97 %in% pbr$skip_codes) || length(cmr$general_codes) || length(cmr$skip_codes))
     stop("Preflight FAILED: long-factor questionnaire/identifier distinction is incorrect.", call. = FALSE)
-
+  
   ntrain <- data.frame(H1MONEY = c(rep(0:100, 3), 9996))
   cfg_money <- cfg_pre$preprocessing
   cfg_money$global_missing_dictionary <- build_global_missing_code_dictionary(
@@ -820,7 +1109,7 @@ run_preflight_unit_test <- function(cfg_template) {
                                      nrec, cfg_money)
   if (napp$H1MONEY_missA[1L] != 1L || napp$H1MONEY_missA[2L] != 0L || napp$H1MONEY[2L] != 22198)
     stop("Preflight FAILED: numeric recipe did not preserve ordinary values while applying an exact sentinel family.", call. = FALSE)
-
+  
   # Rare binary missingness indicators must remain exact 0/1 columns and must
   # never be winsorized to constants.
   rare_indicator <- c(rep(0, 399), 1)
@@ -832,7 +1121,7 @@ run_preflight_unit_test <- function(cfg_template) {
   if (!identical(as.numeric(rare_out[, 1L]), as.numeric(rare_indicator)) ||
       length(unique(rare_out[, 1L])) != 2L)
     stop("Preflight FAILED: rare numeric missingness indicator was transformed or erased.", call. = FALSE)
-
+  
   # Join tests: the master person key must be complete and unique; missing keys
   # are allowed only on supplemental/right tables and must never match.
   jx <- data.frame(AID = c(1, 2, 3), left = 1:3)
@@ -840,31 +1129,31 @@ run_preflight_unit_test <- function(cfg_template) {
   jo <- left_join_unique(jx, jy, "AID", "preflight_left", "preflight_right")
   if (nrow(jo) != 3L || !is.na(jo$right[3L]) || !identical(jo$right[c(1L,2L)], c(10,20)))
     stop("Preflight FAILED: one-to-one join matched or multiplied missing supplemental keys.", call. = FALSE)
-
+  
   missing_master <- try(
     left_join_unique(data.frame(AID = c(1, NA, 2)), jy, "AID",
                      "preflight_missing_master", "preflight_right"), silent = TRUE)
   if (!inherits(missing_master, "try-error"))
     stop("Preflight FAILED: a missing master AID was not rejected.", call. = FALSE)
-
+  
   malformed_key <- try(
     coerce_join_key(data.frame(AID = c("1", "bad", "2")), "AID", "preflight_malformed"),
     silent = TRUE)
   if (!inherits(malformed_key, "try-error"))
     stop("Preflight FAILED: malformed nonmissing join keys were silently converted to NA.", call. = FALSE)
-
+  
   mx <- data.frame(AID = 1:4, PSUSCID = c(10, NA, 10, 20))
   my <- data.frame(PSUSCID = c(10, 20, NA, NA), school = c("a", "b", "x", "y"))
   mo <- left_join_many_to_one(mx, my, "PSUSCID", "preflight_people", "preflight_school", row_id = "AID")
   if (nrow(mo) != 4L || !is.na(mo$school[2L]) ||
       !identical(as.character(mo$school[c(1L,3L,4L)]), c("a","a","b")))
     stop("Preflight FAILED: many-to-one join mishandled missing school keys.", call. = FALSE)
-
+  
   dup_check <- try(assert_unique_key(data.frame(AID = c(1, 1, NA)), "AID", "preflight_duplicate"),
                    silent = TRUE)
   if (!inherits(dup_check, "try-error"))
     stop("Preflight FAILED: duplicated nonmissing join keys were not rejected.", call. = FALSE)
-
+  
   collision_test <- data.frame(
     SAME.x = c(1, NA, 3), SAME.y = c(1, 2, 3),
     CONFLICT.x = c(1, 2, 3), CONFLICT.y = c(1, 9, 3),
@@ -891,7 +1180,7 @@ run_preflight_unit_test <- function(cfg_template) {
   frozen_subset_rule <- get_missing_rule(subset_without_skip, cfg_dict, "H1LOW")
   if (!identical(frozen_subset_rule$skip_codes, 7))
     stop("Preflight FAILED: a fold-specific subset changed the globally frozen missing-code rule.", call. = FALSE)
-
+  
   preflight_step("weighted screening invariance and responsiveness", {
     # Use enough rows that every CV training subset is non-degenerate. Within
     # each x level both outcomes occur; relative weights, rather than perfect
@@ -901,7 +1190,7 @@ run_preflight_unit_test <- function(cfg_template) {
     sy <- rep(c(0, 1, 0, 1), times = n_screen_blocks)
     sw <- rep(c(20, 1, 1, 20), times = n_screen_blocks)
     sfold <- rep(rep(seq_len(3L), each = 4L), length.out = nrow(sx))
-
+    
     s1 <- screen_binom_linear(sy, sx, K = 3L, fold = sfold, weights = sw)
     s2 <- screen_binom_linear(sy, sx, K = 3L, fold = sfold, weights = 100 * sw)
     s0 <- screen_binom_linear(sy, sx, K = 3L, fold = sfold,
@@ -912,9 +1201,9 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("binary screening changed under common weight rescaling.", call. = FALSE)
     if (abs(as.numeric(s1 - s0)) <= 1e-6)
       stop("binary screening did not respond to relative weights.", call. = FALSE)
-
-    # The old Gaussian test set gy equal to x exactly, so weights could not
-    # change a perfect fit. Reuse the non-perfect binary pattern as a numeric Y.
+    
+    # Use a non-perfect outcome pattern so the Gaussian screening
+    # fixture can test responses to relative observation weights.
     gy <- as.numeric(sy)
     g1 <- screen_gauss_linear(gy, sx, K = 3L, fold = sfold, weights = sw)
     g2 <- screen_gauss_linear(gy, sx, K = 3L, fold = sfold, weights = 100 * sw)
@@ -927,7 +1216,7 @@ run_preflight_unit_test <- function(cfg_template) {
     if (abs(as.numeric(g1 - g0)) <= 1e-6)
       stop("Gaussian screening did not respond to relative weights.", call. = FALSE)
   })
-
+  
   dup_df <- data.frame(H1DUPA = c(1, 2, 6, 8), CSTDUPB = c(1, 2, 6, 8))
   dup_cfg <- cfg_pre$preprocessing
   dup_cfg$global_missing_dictionary <- build_global_missing_code_dictionary(
@@ -941,13 +1230,13 @@ run_preflight_unit_test <- function(cfg_template) {
     dup_df$CSTDUPB, get_missing_rule(dup_df$CSTDUPB, dup_cfg, "CSTDUPB"))
   if (identical(sig_a, sig_b))
     stop("Preflight FAILED: semantic duplicate signatures collapsed distinct variables.", call. = FALSE)
-
+  
   collision_out <- resolve_join_suffix_collisions(collision_test)
   if ("SAME.y" %in% names(collision_out$data) ||
       !identical(as.numeric(collision_out$data$SAME.x), c(1,2,3)) ||
       !all(c("CONFLICT.x", "CONFLICT.y", "NOOVERLAP.x", "NOOVERLAP.y", "ORPHAN.y") %in% names(collision_out$data)))
     stop("Preflight FAILED: join-suffix collision resolver discarded or mis-coalesced data.", call. = FALSE)
-
+  
   bad_att_cfg <- cfg_pre; bad_att_cfg$final_tmle$att_estimator <- "onestep"
   if (!inherits(try(validate_cfg(bad_att_cfg), silent = TRUE), "try-error"))
     stop("Preflight FAILED: unsupported one-step ATT headline was not rejected.", call. = FALSE)
@@ -972,7 +1261,7 @@ run_preflight_unit_test <- function(cfg_template) {
     list(source_var = "W1"), list(), NULL), silent = TRUE)
   if (!inherits(pt_bad, "try-error"))
     stop("Preflight FAILED: nonnumeric PassThrough values were not rejected.", call. = FALSE)
-
+  
   # Fast g/pi clip-sweep unit test: all scenarios must re-target and
   # return finite ATT/SE/percentage values without refitting nuisance models.
   ncs <- 240L
@@ -999,7 +1288,24 @@ run_preflight_unit_test <- function(cfg_template) {
     survey_design_frame = cs_design, y_lower = 0, y_range = 1,
     att_components = list(A = Acs, delta_Y = dcs, Y_bounded_orig = ycs,
                           weights = rep(1, ncs), cluster = cs_cluster,
-                          strata = cs_design$REGION))
+                          strata = cs_design$REGION,
+                          # Distinct uncalibrated g predictions exercise the calibration
+                          # comparison branch and remain aligned with the synthetic rows.
+
+
+                          gn_uncalibrated = pmin(pmax(
+                            grawcs + 0.01, 0.001), 0.999)))
+  # Synthetic alternate-pi predictions and structural zeros exercise
+  # the retargeting branches; alternate pi differs by exposure arm.
+
+  fake_fit$pi_1W_alt_raw <- pmin(pmax(pirawcs + 0.02, 0.001), 0.999)
+  fake_fit$pi_0W_alt_raw <- pmin(pmax(pirawcs - 0.02, 0.001), 0.999)
+  fake_fit$pi_AW_alt_raw <- ifelse(Acs == 1L, fake_fit$pi_1W_alt_raw,
+                                   fake_fit$pi_0W_alt_raw)
+  fake_fit$pi_alt_status <- rep("fitted", 5L)
+  fake_fit$structural_zero <- (seq_len(ncs) %% 40L == 0L) & dcs == 1L
+  fake_fit$structural_zero_source <- "preflight_fixture"
+  fake_fit$att_components$Y_bounded_orig[fake_fit$structural_zero] <- 0
   # Seed the synthetic headline with the same configured-bound calculation so
   # build_att_g_pi_clip_sensitivity can exercise its exact reconciliation gate.
   fake_primary <- estimate_joint_att_under_clips(
@@ -1011,20 +1317,62 @@ run_preflight_unit_test <- function(cfg_template) {
   fake_fit$att_components$att_tmle_estimate <- fake_primary$att_estimate
   cst <- build_att_g_pi_clip_sensitivity(fake_fit, cfg_pre)
   
+  # Expected rows are derived from the SAME configuration the sweep reads, so
+  # changing a floor list cannot silently desynchronise this check.
+  .sym_floors <- sort(unique(as.numeric(
+    cfg_pre$diagnostics$att_g_pi_clip_sensitivity_floors %||% c(0.01, 0.025, 0.05))))
+  .g_floors <- as.numeric(cfg_pre$diagnostics$att_g_only_clip_floors %||% numeric(0))
+  .g_floors <- .g_floors[is.finite(.g_floors) & .g_floors > 0 & .g_floors < 0.5]
+  .n_obs_cs <- sum(dcs == 1L)
+  if (isTRUE(cfg_pre$diagnostics$att_g_clip_include_sample_size_bound %||% TRUE)) {
+    .cc <- as.numeric(cfg_pre$diagnostics$att_g_clip_sample_size_constant %||% 5)
+    .ssb <- .cc / (sqrt(.n_obs_cs) * log(.n_obs_cs))
+    if (is.finite(.ssb) && .ssb > 0 && .ssb < 0.5) .g_floors <- c(.g_floors, .ssb)
+  }
+  .g_floors <- sort(unique(.g_floors))
   expected_clip_rows <-
-    length(unique(as.numeric(
-      cfg_pre$diagnostics$att_g_pi_clip_sensitivity_floors %||% c(0.01, 0.025, 0.05)
-    ))) + 
-    as.integer(isTRUE(
-      cfg_pre$diagnostics$att_g_pi_clip_include_configured %||% TRUE
-    ))
+    as.integer(isTRUE(cfg_pre$diagnostics$att_g_pi_clip_include_configured %||% TRUE)) +
+    as.integer(isTRUE(cfg_pre$analysis$calibrate_g)) +
+    length(.sym_floors) + length(.g_floors) +
+    1L +   # alternate-pi row (fixture always supplies alternate predictions)
+    0L # no factual structural-zero pi override
   
   if (nrow(cst) != expected_clip_rows ||
       any(!is.finite(cst$att_estimate)) ||
       any(!is.finite(cst$att_se)) ||
       any(!is.finite(cst$prevention_gain_pct)) ||
       any(!cst$prevention_gain_defined))
-    stop("Preflight FAILED: identity-scale g/pi clip sensitivity sweep is invalid.", call. = FALSE)
+    stop(sprintf(paste0("Preflight FAILED: identity-scale g/pi clip sensitivity sweep is invalid ",
+                        "(rows=%d, expected=%d)."), nrow(cst), expected_clip_rows), call. = FALSE)
+  # Require the named sensitivity rows, not merely the expected row count.
+  if (isTRUE(cfg_pre$analysis$calibrate_g) &&
+      !"uncalibrated_g_primary_bounds" %in% cst$scenario)
+    stop("Preflight FAILED: the uncalibrated-g comparison row is missing.", call. = FALSE)
+  if (!any(grepl("^g_only_", cst$scenario)))
+    stop("Preflight FAILED: the g-only clipping rows are missing.", call. = FALSE)
+  if (isTRUE(cfg_pre$diagnostics$att_g_clip_include_sample_size_bound %||% TRUE) &&
+      !any(grepl("^g_only_sample_size_bound_", cst$scenario)))
+    stop("Preflight FAILED: the sample-size-based g bound row is missing.", call. = FALSE)
+  if (!"alt_pi_A_unpenalized_primary_bounds" %in% cst$scenario)
+    stop("Preflight FAILED: the alternate-pi retargeted row is missing.", call. = FALSE)
+  # g-only rows must leave the pi bounds at their configured values.
+  .gonly <- cst[grepl("^g_only_", cst$scenario), , drop = FALSE]
+  if (nrow(.gonly) &&
+      (any(.gonly$pi_lower != cfg_pre$final_tmle$pi_lower) ||
+       any(.gonly$pi_upper != cfg_pre$final_tmle$pi_upper)))
+    stop("Preflight FAILED: a g-only clipping row moved the pi bounds.", call. = FALSE)
+  # The sample-size bound must match the published formula on observed outcomes.
+  .ssrow <- cst[grepl("^g_only_sample_size_bound_", cst$scenario), , drop = FALSE]
+  if (nrow(.ssrow) == 1L) {
+    .want <- as.numeric(cfg_pre$diagnostics$att_g_clip_sample_size_constant %||% 5) /
+      (sqrt(.n_obs_cs) * log(.n_obs_cs))
+    if (!isTRUE(all.equal(.ssrow$g_lower, .want, tolerance = 1e-12)) ||
+        !isTRUE(all.equal(unique(cst$g_clip_sample_size_bound), .want, tolerance = 1e-12)) ||
+        !identical(as.integer(unique(cst$g_clip_sample_size_bound_n_observed_outcomes)),
+                   as.integer(.n_obs_cs)))
+      stop("Preflight FAILED: the sample-size g bound or its recorded sample count is wrong.",
+           call. = FALSE)
+  }
   for (tr in c("log1p", "asinh")) {
     cfg_tr <- cfg_pre
     cfg_tr$outcome$compensation_transform <- tr
@@ -1035,8 +1383,8 @@ run_preflight_unit_test <- function(cfg_template) {
       paste0("preflight_", tr))
     if (isTRUE(z_tr$prevention_gain_defined) ||
         any(is.finite(unlist(z_tr[c("prevention_gain_pct", "prevention_gain_se",
-                                   "prevention_gain_ci_lower", "prevention_gain_ci_upper",
-                                   "prevention_gain_p")]))))
+                                    "prevention_gain_ci_lower", "prevention_gain_ci_upper",
+                                    "prevention_gain_p")]))))
       stop("Preflight FAILED: transformed Compensation clip analysis emitted an arithmetic-dollar prevention gain.",
            call. = FALSE)
   }
@@ -1051,7 +1399,7 @@ run_preflight_unit_test <- function(cfg_template) {
   cfg_pre <- freeze_run_provenance(cfg_pre)
   validate_cfg(cfg_pre)
   load_required_packages(cfg_pre)
-
+  
   # The primary cap is the pooled GSWGT1-weighted observed-outcome configured quantile using
   # with the configured HF8 rule. Re-scaling all survey weights must not change it.
   cap_a <- compute_continuous_cap(
@@ -1060,7 +1408,7 @@ run_preflight_unit_test <- function(cfg_template) {
     df$Y, 17 * df$GSWGT1, cfg_pre$outcome$continuous_upper_quantile, cfg_pre)
   if (!is.finite(cap_a) || !isTRUE(all.equal(cap_a, cap_b, tolerance = 1e-10)))
     stop("Preflight FAILED: weighted outcome cap is invalid or changes under common weight scaling.", call. = FALSE)
-
+  
   # Whole-school fold assignment must preserve clusters and place every active
   # A-by-delta cell in every validation fold and its training complement.
   fold_test <- do.call(make_cluster_folds_balanced, c(list(
@@ -1085,7 +1433,7 @@ run_preflight_unit_test <- function(cfg_template) {
         stop("Preflight FAILED: a fold or its training complement lacks an active A-by-delta cell.", call. = FALSE)
     }
   }
-
+  
   # REGION-stratified with-replacement survey inference must be finite and the
   # PSU-only sensitivity must remain available as a separately labeled result.
   inf_smoke <- cluster_inference_from_eif(
@@ -1127,19 +1475,22 @@ run_preflight_unit_test <- function(cfg_template) {
   }, error = function(e) TRUE)
   if (!strata_mismatch_caught)
     stop("Preflight FAILED: analytic/full-design stratum mismatch was not rejected.", call. = FALSE)
-
+  
   preflight_step("register active primary-production learners", {
     register_custom_learners(cfg_pre)
-    expected_q <- build_sl_library(cfg_pre, "Q")
-    if ("SL.xgboost.rich" %in% expected_q)
-      stop("Sensitivity-only rich XGBoost unexpectedly entered the primary preflight library.",
-           call. = FALSE)
-    required_q <- c("SL.mean", "SL.glmnet.fixed", "SL.ranger.fixed", "SL.xgboost.fixed")
-    if (!all(required_q %in% expected_q))
-      stop("The primary Q learner library is incomplete.", call. = FALSE)
-  })
+    # Validate the requested learner library, including regularized-only
+    # and richer-Q settings. Per-fit assertions reject fitting failures.
 
-  preflight_step("v8.28 fixed-nuisance MNAR known-answer tests", {
+    for (target in c("Q", "g", "pi")) {
+      requested <- build_sl_library(cfg_pre, target)
+      missing <- requested[!vapply(requested, exists, logical(1),
+                                   mode = "function", inherits = TRUE)]
+      if (length(missing))
+        stop("Unregistered ", target, " learner(s): ", paste(missing, collapse = ", "), call. = FALSE)
+    }
+  })
+  
+  preflight_step("v8.30 fixed-nuisance MNAR known-answer tests", {
     n_m <- 240L
     idx_m <- seq_len(n_m)
     cluster_m <- rep(seq_len(40L), each = 6L)
@@ -1191,11 +1542,26 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("Calibrated MNAR bootstrap is invalid or not exactly seed-reproducible.",
            call. = FALSE)
   })
-
-
+  
+  
   res <- preflight_step("end-to-end synthetic CV-TMLE", {
     run_final_cv_tmle(cfg_pre, df)
   })
+  if (isTRUE(cfg_pre$final_tmle$residual_Q_candidate)) {
+    if (length(res$residual_Q_training_by_fold)!=length(unique(res$outer_fold)) ||
+        any(!is.finite(res$Q_without_residual_predictions)))
+      stop("Preflight FAILED: residual-Q archive or original-library predictions missing.")
+    chk <- build_residual_Q_comparison(res,cfg_pre)
+    if (abs(chk$att_estimate[1]-res$result$att_estimate)>1e-7 ||
+        abs(chk$att_se[1]-res$result$att_se)>1e-7)
+      stop("Preflight FAILED: residual-Q comparison does not reproduce primary ATT/SE.")
+    if (any(!is.finite(build_residual_Q_validation(res,cfg_pre)$baseline_minus_residual_mse)))
+      stop("Preflight FAILED: residual-Q held-out validation failed.")
+  }
+  run_v842_postfit_self_test(res,cfg_pre)
+  run_v842_binary_candidate_test(cfg_pre)
+  run_v843_glmnet_self_test(cfg_pre)
+  run_v844_self_test(cfg_pre)
   rr <- res$result
   needed <- c("estimate","se","att_mu1","att_mu0",
               "pct_depression_effect","pct_depression_effect_se",
@@ -1209,8 +1575,8 @@ run_preflight_unit_test <- function(cfg_template) {
   if (is.null(res$protected_mapping_by_fold) ||
       length(res$protected_mapping_by_fold) != preflight_outer_v ||
       any(vapply(res$protected_mapping_by_fold, function(z)
-        length(z) != 19L || any(!is.finite(z)) || any(z < 1L), logical(1))))
-    stop("Preflight FAILED: at least one protected H1FS item disappeared in a final fold.", call. = FALSE)
+        !setequal(names(z),resolve_protected_W(cfg_pre)) || any(!is.finite(z)) || any(z < 1L), logical(1))))
+    stop("Preflight FAILED: a configured protected baseline variable disappeared in a final fold.", call. = FALSE)
   if (!isTRUE(all.equal(res$D, ac$D_att, tolerance = 1e-12)))
     stop("Preflight FAILED: the generic primary EIF is not the ATT EIF.", call. = FALSE)
   if (!is.finite(rr$inference_df[1]) || !grepl("stratified", rr$inference_method[1], ignore.case = TRUE))
@@ -1224,8 +1590,8 @@ run_preflight_unit_test <- function(cfg_template) {
     stop("Preflight FAILED: a joint ATT targeting score exceeds tolerance.", call. = FALSE)
   if (!any(df$Y == 0, na.rm=TRUE) || max(df$Y, na.rm=TRUE) != 999995)
     stop("Preflight FAILED: raw-dollar heavy-tail test data were not preserved.", call. = FALSE)
-
-
+  
+  
   # Strict SuperLearner failure-flag regression test: the package explicitly
   # records learners that failed during CV or full fitting, even when it can
   # continue by assigning them zero weight.
@@ -1242,7 +1608,7 @@ run_preflight_unit_test <- function(cfg_template) {
   }, error = function(e) TRUE)
   if (!failed_flag_caught)
     stop("Preflight failed: SuperLearner package failure flags were not enforced.", call. = FALSE)
-
+  
   # Protected factor levels must not be collapsed because a category is rare
   # or has few treated observations.
   h1_test <- factor(c(rep("0", 40), rep("1", 20), rep("2", 8), "3", "Missing"))
@@ -1252,7 +1618,7 @@ run_preflight_unit_test <- function(cfg_template) {
                              preserve_substantive_levels = TRUE)
   if (!all(c("0", "1", "2", "3") %in% ptest$levels))
     stop("Preflight failed: protected H1FS substantive levels were collapsed.", call. = FALSE)
-
+  
   # The production driver supplies delta = 1 for every g-fold row, so this
   # regression test verifies deterministic reconstruction of those folds
   g_fold_1 <- do.call(make_cluster_folds_balanced, c(list(
@@ -1265,7 +1631,7 @@ run_preflight_unit_test <- function(cfg_template) {
     fold_control_from_cfg(cfg_pre, "internal")))
   if (!identical(g_fold_1, g_fold_2))
     stop("Preflight failed: g-fold construction is not deterministic.", call. = FALSE)
-
+  
   preflight_step("suffix-safe candidate governance and ordinary AH_PVT screening", {
     toy <- data.frame(
       AID = 1:20,
@@ -1289,6 +1655,8 @@ run_preflight_unit_test <- function(cfg_template) {
       derived_from = NA_character_, stringsAsFactors = FALSE)
     attr(toy, "variable_source_registry") <- validate_variable_source_registry(reg)
     cfg_toy <- cfg_pre
+    cfg_toy$analysis$protected_W_mode <- "items"
+    cfg_toy$final_tmle$protected_W_items <- "H1FS1"
     cfg_toy$final_tmle$protected_W <- "H1FS1"
     cfg_toy$causal_governance$additional_mandatory_W <- character(0)
     cfg_toy$analysis$extra_exclude_from_candidates <- c(
@@ -1302,7 +1670,7 @@ run_preflight_unit_test <- function(cfg_template) {
     if (nrow(ah) != 1L || !isTRUE(ah$eligible_candidate_W) ||
         isTRUE(ah$mandatory_W) || isTRUE(ah$configured_exclusion))
       stop("AH_PVT is not behaving as an ordinary screened candidate.", call. = FALSE)
-
+    
     # The descriptive registry must not act as an allowlist.
     toy$UNREGISTERED_W <- stats::rnorm(nrow(toy))
     attr(toy, "variable_source_registry") <- validate_variable_source_registry(reg)
@@ -1313,7 +1681,7 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("The descriptive variable-source registry is still acting as an allowlist.",
            call. = FALSE)
     validate_candidate_governance(toy, cfg_toy, audit2)
-
+    
     # Mandatory suffix canonicalization remains appropriate for H1FS only.
     toy_alias <- toy
     toy_alias$H1FS1.x <- toy_alias$H1FS1
@@ -1322,7 +1690,7 @@ run_preflight_unit_test <- function(cfg_template) {
     toy_alias <- canonicalize_mandatory_W_columns(toy_alias, cfg_toy)
     if (!"H1FS1" %in% names(toy_alias) || "H1FS1.x" %in% names(toy_alias))
       stop("Protected-H1FS suffix canonicalization failed.", call. = FALSE)
-
+    
     bad_reg <- reg
     bad_reg$canonical_variable[1L] <- "WRONG"
     if (!inherits(try(validate_variable_source_registry(bad_reg), silent = TRUE),
@@ -1335,7 +1703,7 @@ run_preflight_unit_test <- function(cfg_template) {
         dr$derived_from != "AH_PVT")
       stop("Derived-variable source audit is incorrect.", call. = FALSE)
   })
-
+  
   preflight_step("optional analysis toggles", {
     cfg_off <- cfg_pre
     cfg_off$policy$enable_policy_components <- FALSE
@@ -1347,29 +1715,55 @@ run_preflight_unit_test <- function(cfg_template) {
     cfg_off$global$pipeline_source_path <- NA_character_
     validate_cfg(cfg_off)
     pipeline_script_fingerprint(cfg_off, strict = FALSE)
-
+    
     cfg_bad_policy <- cfg_off
     cfg_bad_policy$policy$enable_att_prevalence_translation <- TRUE
     if (!inherits(try(validate_cfg(cfg_bad_policy), silent = TRUE), "try-error"))
       stop("Policy translation was allowed without policy-component targeting.",
            call. = FALSE)
-
+    
     cfg_mort_link_only <- cfg_pre
     cfg_mort_link_only$mortality_sensitivity$enabled <- TRUE
     cfg_mort_link_only$mortality_sensitivity$composite_zero_at_death <- FALSE
     validate_cfg(cfg_mort_link_only)
-
+    
     curated_names <- names(final_sensitivity_scenarios())
     if ("S0_main" %in% curated_names)
       stop("Curated sensitivity list must not re-run the already completed primary specification.",
            call. = FALSE)
     if (!"F1f_no_mortality_composite" %in% curated_names)
-      stop("Curated sensitivity list is missing the no-mortality comparator.", call. = FALSE)
+      stop("Curated sensitivity list is missing the no-mortality-composite comparator.",
+           call. = FALSE)
+    f1f <- final_sensitivity_scenarios()[["F1f_no_mortality_composite"]]
+    cfg_f1f <- merge_cfg_overlay(cfg_pre, f1f$overlay)
+    validate_cfg(cfg_f1f)
+    f1f_enabled <- vapply(c(3L, 4L), function(w) {
+      isTRUE(resolve_mortality_spec(cfg_f1f, w)$enabled)
+    }, logical(1L))
+    if (!all(f1f_enabled) ||
+        isTRUE(cfg_f1f$mortality_sensitivity$composite_zero_at_death))
+      stop(paste0(
+        "F1f must retain Wave-III/IV mortality linkage while disabling only ",
+        "mortality-composite zeroing."), call. = FALSE)
     if (!"F0f_combined_nuisance_balance_pi" %in% curated_names)
       stop("Curated sensitivity list is missing the combined nuisance scenario.", call. = FALSE)
-    if (any(grepl("cutpoint_24|cutpoint.*24", curated_names, ignore.case = TRUE)))
-      stop("The curated sensitivity list unexpectedly contains a cutoff-24 scenario.",
+    # Validate the declared CES-D cutoff-24 sensitivity and retain 22
+    # as the primary threshold. The altered exposure requires a separate fit.
+
+
+    alt_cut_hi <- default_sensitivity_scenarios()[["S6b_alt_cutpoint_high"]]
+    if (is.null(alt_cut_hi))
+      stop("Default sensitivity list is missing the cutoff-24 comparator.", call. = FALSE)
+    cfg_cut_hi <- merge_cfg_overlay(cfg_pre, alt_cut_hi$overlay)
+    validate_cfg(cfg_cut_hi)
+    if (!identical(as.numeric(cfg_cut_hi$exposure$cutpoint), 24) ||
+        !identical(as.numeric(cfg_cut_hi$analysis$expected_exposure_cutpoint), 24) ||
+        isTRUE(cfg_cut_hi$analysis$enforce_expected_treated_gate))
+      stop("Cutoff-24 sensitivity did not update its cutpoint gate and treated-count gate.",
            call. = FALSE)
+    if (isTRUE(cfg_pre$analysis$enforce_expected_cutpoint_gate) &&
+        cfg_pre$exposure$cutpoint != cfg_pre$analysis$expected_exposure_cutpoint)
+      stop("Exposure cutoff and its declared gate disagree.",call.=FALSE)
     default_cut <- default_sensitivity_scenarios()[["S6_alt_cutpoint_low"]]
     cfg_default_cut <- merge_cfg_overlay(cfg_pre, default_cut$overlay)
     validate_cfg(cfg_default_cut)
@@ -1379,7 +1773,7 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("Default cutoff-20 sensitivity did not update its cutpoint gate and treated-count gate.",
            call. = FALSE)
     if (!inherits(try(final_sensitivity_scenarios(
-        negative_control_outcome = "W1"), silent = TRUE), "try-error"))
+      negative_control_outcome = "W1"), silent = TRUE), "try-error"))
       stop("F3 accepted a negative-control outcome without an explicit outcome type.",
            call. = FALSE)
     f3_scenarios <- final_sensitivity_scenarios(
@@ -1398,135 +1792,156 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("F3 negative-control source was not excluded from candidate W.",
            call. = FALSE)
   })
-
-
-  preflight_step("NDIDD19Y mortality derivation, audit-only IYEAR4, and F1f isolation", {
+  
+  
+  preflight_step("harmonized month-timed mortality classification", {
     cfg_mort <- cfg_template
     cfg_mort$global$save_stage_csvs <- FALSE
     cfg_mort$mortality_sensitivity$enabled <- TRUE
+    cfg_mort$mortality_sensitivity$enabled_waves <- c(3L, 4L)
     cfg_mort$mortality_sensitivity$composite_zero_at_death <- TRUE
-    mortality_toy <- data.frame(
+    cfg_mort$outcome$family <- "Compensation"
+    cfg_mort$outcome$current_wave <- 4L
+    cfg_mort$outcome$waves <- 4L
+    mc4 <- resolve_mortality_spec(cfg_mort, 4L)
+    cfg_lfp4 <- cfg_mort
+    cfg_lfp4$outcome$family <- "LaborForceParticipation"
+    mc4_lfp <- resolve_mortality_spec(cfg_lfp4, 4L)
+    if (!identical(mc4$timing_mode, "interview_month") ||
+        !identical(as.integer(mc4$death_year_end), 2009L) ||
+        !identical(mc4$timing_mode, mc4_lfp$timing_mode) ||
+        !identical(as.integer(mc4$death_year_end),
+                   as.integer(mc4_lfp$death_year_end)))
+      stop("Wave-IV mortality is not harmonized across outcome families through 2009.",
+           call. = FALSE)
+    
+    m4 <- data.frame(
       AID = 1:8,
-      NDIDD19Y = c(1996, 1997, 2001, 2007, 2008, 2019, NA, 99997),
+      NDIDD19Y = c(2008, 2008, 2008, 2008, 2009, 2009, 2009, 99997),
+      NDIDD19M = c(5, 6, 7, 12, 1, 2, 997, 997),
       check.names = FALSE)
-    mort_result <- derive_mortality_indicator_from_data(mortality_toy, cfg_mort)
-    raw_var <- cfg_mort$mortality_sensitivity$death_in_window_var
-    expected_raw <- c(0L, 1L, 1L, 1L, 0L, 0L, 0L, 0L)
-    if (!identical(mort_result$data[[raw_var]], expected_raw) ||
-        mort_result$audit$n_deaths_in_raw_window != 3L)
-      stop("NDIDD19Y did not produce the intended inclusive 1997-2007 raw-window indicator.",
-           call. = FALSE)
-
-    main_link_toy <- data.frame(
-      AID = 1:4, GSWGT1 = rep(1, 4), W = 1:4,
+    timing4 <- data.frame(
+      AID = c(1, 2, 3, 8),
+      IYEAR4 = c(2008, 2008, 2008, 2009),
+      IMONTH4 = c(6, 6, 6, 1),
       check.names = FALSE)
-    # IYEAR4 is audit-only. Missing values for deaths/nonrespondents are expected,
-    # and changing an observed interview year must never alter Death1997_2007.
-    interview_audit_toy <- data.frame(
-      AID = 1:3, IYEAR4 = c(2007L, 2008L, 2009L),
-      check.names = FALSE)
-    complete_link <- merge_mortality_indicator_from_data(
-      main_link_toy, mortality_toy[1:4, , drop = FALSE], cfg_mort,
-      wave4_timing = interview_audit_toy)
-    if (!identical(complete_link$data$Death1997_2007,
-                   c(0L, 1L, 1L, 1L)) ||
-        complete_link$audit$n_required_rows_unmatched != 0L ||
-        complete_link$audit$n_deaths_without_interview_year != 1L)
-      stop("Mortality linkage did not preserve the fixed NDIDD19Y window with audit-only IYEAR4.",
+    main4 <- data.frame(AID = 1:8, GSWGT1 = rep(1, 8), W = 1:8)
+    linked4 <- merge_mortality_indicator_from_data(
+      main4, m4, cfg_mort, interview_timing = timing4)
+    expected4 <- c(1L, 0L, 0L, 1L, 1L, 0L, 0L, 0L)
+    if (!identical(linked4$data[[mc4$death_before_outcome_var]], expected4) ||
+        linked4$audit$fieldwork_start_year != 2008L ||
+        linked4$audit$fieldwork_start_month != 6L ||
+        linked4$audit$fieldwork_end_year != 2009L ||
+        linked4$audit$fieldwork_end_month != 1L ||
+        linked4$audit$n_same_interview_month_unordered != 1L)
+      stop("Wave-IV harmonized mortality known-answer classification failed.",
            call. = FALSE)
-    changed_interview <- interview_audit_toy
-    changed_interview$IYEAR4 <- c(2009L, 2007L, 2008L)
-    changed_link <- merge_mortality_indicator_from_data(
-      main_link_toy, mortality_toy[1:4, , drop = FALSE], cfg_mort,
-      wave4_timing = changed_interview)
-    if (!identical(changed_link$data$Death1997_2007,
-                   complete_link$data$Death1997_2007))
-      stop("Audit-only IYEAR4 unexpectedly changed mortality classification.",
+    if (linked4$data[[mc4$timing_status_var]][5L] !=
+        "on_or_before_fieldwork_end_month_no_interview" ||
+        linked4$data[[mc4$timing_status_var]][7L] !=
+        "fieldwork_end_year_death_month_unknown_no_interview")
+      stop("Wave-IV fieldwork-end mortality status is incorrect.", call. = FALSE)
+    
+    # A valid death year with NDIDD19M=997 remains a candidate death with an
+    # unknown month; other nonmissing invalid month codes fail loudly.
+    unknown_m <- derive_mortality_indicator_from_data(
+      data.frame(AID = 1L, NDIDD19Y = 2000L, NDIDD19M = 997L), cfg_mort)
+    if (!is.na(unknown_m$data[[mc4$derived_death_month_var]][1L]) ||
+        unknown_m$data[[mc4$death_in_window_var]][1L] != 1L)
+      stop("NDIDD19M=997 was not retained as unknown month on a valid death year.",
            call. = FALSE)
-    invalid_interview <- interview_audit_toy
-    invalid_interview$IYEAR4[1L] <- 2015L
+    if (!inherits(try(derive_mortality_indicator_from_data(
+      data.frame(AID = 1L, NDIDD19Y = 2000L, NDIDD19M = 998L), cfg_mort),
+      silent = TRUE), "try-error"))
+      stop("Unrecognized nonmissing NDIDD19M code did not fail loudly.", call. = FALSE)
+    
+    # Wave III uses the same rule, with its own latest observed fieldwork month.
+    cfg_ed3 <- cfg_mort
+    cfg_ed3$outcome$family <- "EducationalAttainment"
+    cfg_ed3$outcome$family_member <- "at_least_hs"
+    cfg_ed3$outcome$current_wave <- 3L
+    cfg_ed3$outcome$waves <- 3L
+    mc3 <- resolve_mortality_spec(cfg_ed3, 3L)
+    m3 <- data.frame(
+      AID = 1:7,
+      NDIDD19Y = c(2001, 2002, 2001, 2001, 2002, 2002, 99997),
+      NDIDD19M = c(12, 4, 9, 10, 5, 997, 997))
+    timing3 <- data.frame(
+      AID = c(3, 4, 7),
+      IYEAR3 = c(2001, 2001, 2002),
+      IMONTH3 = c(10, 10, 4))
+    main3 <- data.frame(AID = 1:7, GSWGT1 = rep(1, 7), W = 1:7)
+    linked3 <- merge_mortality_indicator_from_data(
+      main3, m3, cfg_ed3, interview_timing = timing3)
+    expected3 <- c(1L, 1L, 1L, 0L, 0L, 0L, 0L)
+    if (!identical(linked3$data[[mc3$death_before_outcome_var]], expected3) ||
+        linked3$audit$fieldwork_end_year != 2002L ||
+        linked3$audit$fieldwork_end_month != 4L)
+      stop("Wave-III fieldwork-end mortality known-answer test failed.", call. = FALSE)
+    
+    # Incomplete mortality linkage remains a hard failure unless explicitly relaxed.
+    incomplete_mortality <- m4[1:7, , drop = FALSE]
     if (!inherits(try(merge_mortality_indicator_from_data(
-        main_link_toy, mortality_toy[1:4, , drop = FALSE], cfg_mort,
-        wave4_timing = invalid_interview), silent = TRUE), "try-error"))
-      stop("Invalid nonmissing IYEAR4 did not trigger the audit-value validation gate.",
-           call. = FALSE)
-
-    incomplete_mortality <- mortality_toy[1:3, , drop = FALSE]
-    if (!inherits(try(merge_mortality_indicator_from_data(
-        main_link_toy, incomplete_mortality, cfg_mort,
-        wave4_timing = interview_audit_toy), silent = TRUE), "try-error"))
+      main4, incomplete_mortality, cfg_mort,
+      interview_timing = timing4), silent = TRUE), "try-error"))
       stop("Incomplete mortality linkage did not trigger the enabled linkage gate.",
            call. = FALSE)
-    cfg_mort_relaxed <- cfg_mort
-    cfg_mort_relaxed$mortality_sensitivity$require_complete_linkage <- FALSE
-    relaxed_link <- suppressWarnings(merge_mortality_indicator_from_data(
-      main_link_toy, incomplete_mortality, cfg_mort_relaxed,
-      wave4_timing = interview_audit_toy))
-    if (!identical(relaxed_link$data$Death1997_2007,
-                   c(0L, 1L, 1L, 0L)) ||
-        relaxed_link$audit$n_required_rows_unmatched != 1L)
-      stop("Disabled mortality linkage gate did not map an unmatched row to no recorded death.",
+    cfg_relaxed_link <- cfg_mort
+    cfg_relaxed_link$mortality_sensitivity$require_complete_linkage <- FALSE
+    relaxed <- suppressWarnings(merge_mortality_indicator_from_data(
+      main4, incomplete_mortality, cfg_relaxed_link,
+      interview_timing = timing4))
+    if (relaxed$data[[mc4$death_before_outcome_var]][8L] != 0L ||
+        relaxed$audit$n_required_rows_unmatched != 1L)
+      stop("Relaxed mortality-linkage gate failed its known-answer behavior.",
            call. = FALSE)
-
-    cfg_no_death_override <- cfg_mort
-    cfg_no_death_override$mortality_sensitivity$no_death_codes <- 2000
-    override_result <- derive_mortality_indicator_from_data(
-      data.frame(AID = 1L, NDIDD19Y = 2000), cfg_no_death_override)
-    if (override_result$data[[raw_var]] != 0L ||
-        override_result$audit$n_no_death_codes_overlapping_year_range != 1L)
+    
+    # Explicit no-death code overrides an otherwise calendar-like year.
+    cfg_override <- cfg_mort
+    cfg_override$mortality_sensitivity$no_death_codes <- 2000
+    override <- derive_mortality_indicator_from_data(
+      data.frame(AID = 1L, NDIDD19Y = 2000L, NDIDD19M = 1L), cfg_override)
+    if (override$data[[mc4$death_in_window_var]] != 0L ||
+        override$audit$n_no_death_codes_overlapping_year_range != 1L)
       stop("Explicit mortality no-death code did not override calendar-year interpretation.",
            call. = FALSE)
-
-    mortality_bad <- data.frame(AID = 1:2, NDIDD19Y = c(2000, 9999))
+    bad_mort <- data.frame(AID = 1:2, NDIDD19Y = c(2000, 9999), NDIDD19M = c(1, 1))
     if (!inherits(try(derive_mortality_indicator_from_data(
-        mortality_bad, cfg_mort), silent = TRUE), "try-error"))
-      stop("Unrecognized mortality codes did not trigger the enabled gate.",
+      bad_mort, cfg_mort), silent = TRUE), "try-error"))
+      stop("Unrecognized mortality year code did not trigger the enabled gate.",
            call. = FALSE)
-
+    
+    # The contradiction gate still prevents overwriting an observed outcome
+    # unless the analyst explicitly relaxes it.
     composite_toy <- data.frame(
-      AID = 1:4,
-      Y = c(100, NA, 50, NA),
+      AID = 1:4, Y = c(100, NA, 50, NA),
       EarningsSource = c("exact", "missing", "bracket", "missing"),
-      Death1997_2007 = c(1L, 1L, 0L, 0L),
-      NDI19DeathYear = c(2000L, 2001L, NA, NA),
-      IYEAR4 = c(NA, NA, 2008L, 2008L),
+      DeathW4 = c(1L, 1L, 0L, 0L), NDIY4 = c(2000L, 2001L, NA, NA),
+      NDIM4 = c(1L, NA_integer_, NA_integer_, NA_integer_),
+      D4Time = c("before_fieldwork_end_year_no_interview",
+                 "before_fieldwork_end_year_no_interview",
+                 "no_death_or_outside_horizon", "no_death_or_outside_horizon"),
+      IYEAR4 = c(NA, NA, 2008L, 2008L), IMONTH4 = c(NA, NA, 5L, 5L),
       stringsAsFactors = FALSE)
     attr(composite_toy, "outcome_support") <- list(lower = 0, upper = 200)
-    if (!inherits(try(apply_mortality_composite(composite_toy, cfg_mort),
-                      silent = TRUE), "try-error"))
-      stop("Observed outcomes among recorded deaths did not trigger the mortality contradiction gate.",
+    if (!inherits(try(apply_mortality_composite(
+      composite_toy, cfg_mort), silent = TRUE), "try-error"))
+      stop("Observed outcomes among pre-outcome deaths did not trigger the contradiction gate.",
            call. = FALSE)
-    cfg_mort_relaxed_outcome <- cfg_mort
-    cfg_mort_relaxed_outcome$mortality_sensitivity$
-      fail_on_death_with_observed_original_outcome <- FALSE
-    composite_result <- suppressWarnings(
-      apply_mortality_composite(composite_toy, cfg_mort_relaxed_outcome))
-    if (!identical(composite_result$data$Y, c(0, 0, 50, NA_real_)) ||
-        !identical(composite_result$data$EarningsSource,
+    cfg_relaxed_outcome <- cfg_mort
+    cfg_relaxed_outcome$mortality_sensitivity$fail_on_death_with_observed_original_outcome <- FALSE
+    comp <- suppressWarnings(apply_mortality_composite(
+      composite_toy, cfg_relaxed_outcome))
+    if (!identical(comp$data$Y, c(0, 0, 50, NA_real_)) ||
+        !identical(comp$data$EarningsSource,
                    c("mortality_zero", "mortality_zero", "bracket", "missing")) ||
-        composite_result$audit$n_deaths_with_observed_original_outcome != 1L ||
-        composite_result$audit$n_deaths_recoded_to_observed_zero != 2L)
-      stop("Disabled mortality contradiction gate did not preserve the audited zero recode.",
-           call. = FALSE)
-
-    # F1f is an ordinary-earnings estimand. It must validate without any
-    # mortality file, IYEAR4 audit, or mortality-specific required output.
-    f1f <- final_sensitivity_scenarios()[["F1f_no_mortality_composite"]]
-    cfg_f1f <- merge_cfg_overlay(cfg_template, f1f$overlay)
-    cfg_f1f$paths$mortality <- NA_character_
-    cfg_f1f$global$require_script_md5 <- FALSE
-    cfg_f1f$global$pipeline_source_path <- NA_character_
-    validate_cfg(cfg_f1f)
-    f1f_paths <- basename(required_publication_paths(cfg_f1f))
-    forbidden <- c(
-      basename(cfg_f1f$mortality_sensitivity$linkage_audit_csv),
-      basename(cfg_f1f$mortality_sensitivity$interview_year_audit_csv),
-      basename(cfg_f1f$mortality_sensitivity$output_csv))
-    if (any(forbidden %in% f1f_paths))
-      stop("F1f incorrectly retained mortality-specific publication requirements.",
+        comp$audit$n_deaths_with_observed_original_outcome != 1L ||
+        comp$audit$n_deaths_recoded_to_observed_zero != 2L)
+      stop("Relaxed mortality contradiction gate failed its audited zero recode.",
            call. = FALSE)
   })
-
+  
   preflight_step("compensation exact-only and zero-safe transforms", {
     cfg_o <- cfg_pre$outcome$families$Compensation
     raw <- data.frame(H4EC2 = c(0, 10000, 9999996),
@@ -1549,12 +1964,12 @@ run_preflight_unit_test <- function(cfg_template) {
         !isTRUE(all.equal(out_log$Y, log1p(c(0, 10000, 7500)))))
       stop("Compensation sensitivity transformations failed.", call. = FALSE)
   })
-
+  
   preflight_step("Q clipping and MNAR helper arithmetic", {
     qs <- summarize_prediction_clipping(c(-0.1, 0.2, 1.1), 0.005, 0.995, 1L, "toy")
     if (qs$n_clipped != 2L || !isTRUE(all.equal(qs$fraction_clipped, 2/3)))
       stop("Q clipping summary failed.", call. = FALSE)
-
+    
     mnar_A <- c(1L, 1L, 0L, 0L)
     mnar_w <- c(1, 3, 100, 100)
     mnar_pi1 <- c(0.5, 0.75, 0.5, 0.5)
@@ -1565,7 +1980,181 @@ run_preflight_unit_test <- function(cfg_template) {
       stop("MNAR clipping fraction is not using treated missing-potential-outcome contribution weights.",
            call. = FALSE)
   })
-
+  
+  preflight_step("verified outcome constructors, nesting, scope, and policy defaults", {
+    cfg_y <- cfg_template
+    cfg_y$outcome$current_wave <- 4L
+    lfp4 <- data.frame(AID=as.character(1:9),
+                       H4LM6=c(1,0,0,0,0,0,0,0,0),
+                       H4LM11=c(7,1,0,0,0,0,0,0,0),
+                       H4LM14=c(97,97,1,2,3,5,4,6,10), stringsAsFactors=FALSE)
+    lfp4_y <- construct_outcome_labor_force_participation(
+      lfp4, 4L, cfg_y$outcome$families$LaborForceParticipation,
+      cfg_y$outcome, NULL, pipeline_cfg=NULL)$Y
+    if (!identical(lfp4_y, c(1L,1L,1L,1L,1L,1L,0L,0L,NA_integer_)))
+      stop("Wave-IV route-aware LFP known-answer test failed.", call. = FALSE)
+    
+    hrs4 <- data.frame(AID=as.character(1:6),
+                       H4LM6=c(1,0,0,0,0,0), H4LM11=c(7,1,1,0,1,1),
+                       H4LM12=c(1,2,1,97,2,98), H4LM13=c(997,70,997,997,997,65),
+                       H4LM19=c(45,40,130,997,50,40), stringsAsFactors=FALSE)
+    hrs4_y <- construct_outcome_hours_worked(
+      hrs4, 4L, cfg_y$outcome$families$HoursWorked,
+      cfg_y$outcome, NULL, pipeline_cfg=NULL)$Y
+    if (!isTRUE(all.equal(hrs4_y, c(45,70,120,0,NA,65), check.attributes=FALSE)))
+      stop("Wave-IV hours known-answer test failed.", call. = FALSE)
+    
+    edu3 <- data.frame(
+      AID = as.character(1:10),
+      H3ED1 = c(12,13,17,12,NA,12,18,96,12,13),
+      H3ED2 = c(0,0,6,0,0,1,0,0,8,0),
+      H3ED3 = c(0,0,9,1,0,0,0,0,9,0),
+      H3ED5 = c(0,0,1,0,1,6,0,0,8,0),
+      stringsAsFactors = FALSE)
+    edu3_expected <- list(
+      at_least_hs = c(0L,1L,1L,1L,1L,1L,NA,NA,NA,1L),
+      at_least_some_college = c(0L,1L,1L,0L,1L,NA,NA,NA,NA,1L),
+      at_least_college_grad = c(0L,0L,1L,0L,1L,NA,NA,0L,NA,0L))
+    for (member in names(edu3_expected)) {
+      out <- construct_outcome_educational_attainment(
+        edu3, 3L, cfg_y$outcome$families$EducationalAttainment,
+        cfg_y$outcome, member, pipeline_cfg = NULL)
+      if (!identical(out$Y, edu3_expected[[member]]))
+        stop("Wave-III education known-answer test failed for ", member, ".",
+             call. = FALSE)
+      if (!"n_nested_violations" %in% out$audit$metric ||
+          as.integer(out$audit$value[out$audit$metric == "n_nested_violations"]) != 0L)
+        stop("Wave-III education nesting audit failed for ", member, ".",
+             call. = FALSE)
+    }
+    
+    edu4 <- data.frame(
+      AID = as.character(1:10),
+      H4ED2 = c(0,2,3,5,6,7,13,96,98,NA),
+      stringsAsFactors = FALSE)
+    edu4_expected <- list(
+      at_least_hs = c(0L,0L,1L,1L,1L,1L,1L,NA,NA,NA),
+      at_least_some_college = c(0L,0L,0L,0L,1L,1L,1L,NA,NA,NA),
+      at_least_college_grad = c(0L,0L,0L,0L,0L,1L,1L,NA,NA,NA))
+    for (member in names(edu4_expected)) {
+      out <- construct_outcome_educational_attainment(
+        edu4, 4L, cfg_y$outcome$families$EducationalAttainment,
+        cfg_y$outcome, member, pipeline_cfg = NULL)
+      if (!identical(out$Y, edu4_expected[[member]]))
+        stop("Wave-IV education known-answer test failed for ", member, ".",
+             call. = FALSE)
+    }
+    if (!inherits(try(construct_outcome_educational_attainment(
+      data.frame(AID="x", H4ED2=99), 4L,
+      cfg_y$outcome$families$EducationalAttainment,
+      cfg_y$outcome, "at_least_college_grad", pipeline_cfg=NULL),
+      silent=TRUE), "try-error"))
+      stop("Wave-IV education accepted unmapped code 99.", call. = FALSE)
+    
+    health <- data.frame(
+      AID = as.character(1:9), H3GH1 = c(1,2,3,4,5,96,98,99,NA),
+      H4GH1 = c(1,2,3,4,5,96,98,99,NA), stringsAsFactors = FALSE)
+    health_expected <- c(1L,1L,1L,0L,0L,NA,NA,NA,NA)
+    for (wave in c(3L, 4L)) {
+      out <- construct_outcome_health_status(
+        health, wave, cfg_y$outcome$families$HealthStatus,
+        cfg_y$outcome, "at_least_good", pipeline_cfg = NULL)
+      if (!identical(out$Y, health_expected))
+        stop("Wave-", wave, " health-status known-answer test failed.",
+             call. = FALSE)
+    }
+    if (!inherits(try(construct_outcome_health_status(
+      data.frame(AID="x", H3GH1=6), 3L,
+      cfg_y$outcome$families$HealthStatus,
+      cfg_y$outcome, "at_least_good", pipeline_cfg=NULL),
+      silent=TRUE), "try-error"))
+      stop("HealthStatus accepted unmapped finite code 6.", call. = FALSE)
+    
+    # The hard scope cannot be bypassed by the unverified-specification override.
+    scope_cases <- list(
+      list(family="LaborForceParticipation", waves=3L),
+      list(family="HoursWorked", waves=3L),
+      list(family="UsualHours", waves=4L),
+      list(family="Compensation", waves=3L),
+      list(family="EducationalAttainment", waves=5L),
+      list(family="HealthStatus", waves=5L))
+    for (case in scope_cases) {
+      bad <- cfg_template
+      bad$outcome$family <- case$family
+      bad$outcome$waves <- case$waves
+      bad$outcome$family_member <- NULL
+      bad$safety$allow_unverified_outcome_specs <- TRUE
+      if (!inherits(try(validate_cfg(bad), silent=TRUE), "try-error"))
+        stop(sprintf("Hard outcome scope accepted %s at Wave %d.",
+                     case$family, case$waves), call. = FALSE)
+    }
+    for (family in c("EducationalAttainment", "HealthStatus")) {
+      good <- cfg_template
+      good$outcome$family <- family
+      good$outcome$waves <- "all"
+      good$outcome$family_member <- NULL
+      if (inherits(try(validate_cfg(good), silent=TRUE), "try-error"))
+        stop(family, " failed verification for its supported Wave-III/IV scope.",
+             call. = FALSE)
+    }
+    
+    # Policy components and the prevention-gain ratio remain enabled for every
+    # supported primary outcome; runtime defaults change only the outcome type.
+    expected_type <- c(
+      EducationalAttainment="binary", HealthStatus="binary",
+      LaborForceParticipation="binary", HoursWorked="continuous",
+      Compensation="continuous")
+    for (family in names(expected_type)) {
+      policy_cfg <- cfg_template
+      policy_cfg$outcome$family <- family
+      policy_cfg$outcome$waves <- supported_outcome_waves(family)[1L]
+      policy_cfg$outcome$family_member <- if (identical(family, "EducationalAttainment"))
+        "at_least_hs" else if (identical(family, "HealthStatus"))
+          "at_least_good" else NULL
+      policy_cfg <- apply_outcome_runtime_defaults(policy_cfg)
+      if (!identical(policy_cfg$analysis$outcome_type, unname(expected_type[family])) ||
+          !isTRUE(policy_cfg$policy$enable_policy_components) ||
+          !isTRUE(policy_cfg$policy$enable_att_prevalence_translation) ||
+          !isTRUE(compensation_ratio_translation_enabled(policy_cfg)))
+        stop("Policy/runtime defaults failed for ", family, ".", call. = FALSE)
+    }
+    transformed_cfg <- cfg_template
+    transformed_cfg$outcome$family <- "Compensation"
+    transformed_cfg$outcome$compensation_transform <- "log1p"
+    if (compensation_ratio_translation_enabled(transformed_cfg))
+      stop("Transformed Compensation incorrectly enabled arithmetic-scale ratios.",
+           call. = FALSE)
+    
+    cfg_m3 <- cfg_template; cfg_m3$outcome$current_wave <- 3L
+    cfg_m3$mortality_sensitivity$enabled <- TRUE
+    cfg_m3$mortality_sensitivity$enabled_waves <- c(3L,4L)
+    mtoy <- data.frame(AID=as.character(1:4),
+                       NDIDD19Y=c(2000,2002,2007,99997), NDIDD19M=c(1,2,3,997))
+    d3 <- derive_mortality_indicator_from_data(mtoy, cfg_m3)$data$D3Raw
+    cfg_m4 <- cfg_m3; cfg_m4$outcome$current_wave <- 4L
+    d4 <- derive_mortality_indicator_from_data(mtoy, cfg_m4)$data$D4Raw
+    if (!identical(d3, c(1L,1L,0L,0L)) || !identical(d4, c(1L,1L,1L,0L)))
+      stop("Wave-specific mortality raw-horizon toggle test failed.", call. = FALSE)
+    
+    # Outcome-aware sensitivity filtering never applies earnings-specific
+    # measurement/transformation scenarios to HoursWorked.
+    cfg_h_nomort <- cfg_template
+    cfg_h_nomort$outcome$family <- "HoursWorked"
+    cfg_h_nomort$outcome$waves <- 4L
+    h_nomort_sc <- filter_sensitivity_scenarios_for_outcome(
+      cfg_h_nomort, final_sensitivity_scenarios())
+    forbidden_h <- c("F1_bound_refit_q0990", "F1b_bound_refit_q1000",
+                     "F1c_exact_earnings_only", "F1d_log1p_earnings",
+                     "F1e_asinh_earnings")
+    if (any(forbidden_h %in% names(h_nomort_sc)))
+      stop("Outcome-aware sensitivity filter retained an inapplicable HoursWorked scenario.",
+           call. = FALSE)
+    if (!"F1f_no_mortality_composite" %in% names(h_nomort_sc))
+      stop(paste0(
+        "Outcome-aware sensitivity filtering incorrectly removed the ",
+        "mortality-composite comparator from HoursWorked."), call. = FALSE)
+  })
+  
   message(sprintf(paste0("Preflight OK. Dollar ATT=$%.2f (SE $%.2f); prevention gain=%.2f%% ",
                          "(SE %.2f); depression effect=%.2f%%; scaled EIF mean=%.2e; ",
                          "target scores=(%.2e, %.2e)."),

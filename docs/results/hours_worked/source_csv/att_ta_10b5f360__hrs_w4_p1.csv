@@ -1,0 +1,5 @@
+scenario,cap_probability,cap_weighted,cap_quantile_rule,outcome_cap,att_estimate,difference_from_headline
+primary,,FALSE,fixed,120,-2.04074728848532,0
+fixed_nuisance_quantile_perturbation,0.99,TRUE,hf8,80,-2.07978833190603,-0.039041043420712
+fixed_nuisance_quantile_perturbation,0.995,TRUE,hf8,84,-2.07103606047729,-0.0302887719919731
+fixed_nuisance_quantile_perturbation,1,TRUE,hf8,120,-2.04074728848061,4.71089833808946e-12

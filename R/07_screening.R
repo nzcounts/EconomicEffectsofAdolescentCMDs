@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 5453-5653.
-# Module role: Nested rough screening.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 5) STAGE 1: ROUGH PRE-SCREEN
 # =============================================================================
 # Plain-English role: a fast first-pass filter. For every candidate variable
@@ -66,7 +61,7 @@ screen_binom_linear <- function(y, X, K = 5L, seed = 1L, eps = 1e-15,
   }
   ll0 <- logloss(y, p0, w)
   if (!is.finite(ll0) || ll0 <= 0) return(setNames(rep(NA_real_, ncol(X)), names(X)))
-
+  
   fit_predict <- function(Xtr, ytr, Xte, wtr) {
     mu_y <- wmean(ytr, wtr)
     if (length(unique(ytr)) < 2L || nrow(Xtr) < 5L) return(rep(mu_y, nrow(Xte)))
@@ -107,7 +102,7 @@ screen_binom_linear <- function(y, X, K = 5L, seed = 1L, eps = 1e-15,
       error = function(e) NULL)
     if (is.null(pr) || !all(is.finite(pr))) rep(NA_real_, nrow(Xte)) else pr
   }
-
+  
   vapply(names(X), function(nm) {
     if (grepl("(_missA|_miss97)$", nm)) return(NA_real_)
     Xnm <- tryCatch(build_single_var_screen_df(nm, X, impute_method = "median"),
@@ -147,7 +142,7 @@ screen_gauss_linear <- function(y, X, K = 5L, seed = 1L,
   }
   mse0 <- mse(y, y0, w)
   if (!is.finite(mse0) || mse0 <= 0) return(setNames(rep(NA_real_, ncol(X)), names(X)))
-
+  
   vapply(names(X), function(nm) {
     col <- X[[nm]]
     if (is.matrix(col)) { if (ncol(col) == 1L) col <- col[, 1] else return(NA_real_) }

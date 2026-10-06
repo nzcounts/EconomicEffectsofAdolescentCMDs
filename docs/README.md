@@ -1,10 +1,14 @@
-# Documentation index
+# Project documentation
 
-- [`RESEARCH_BACKGROUND.md`](RESEARCH_BACKGROUND.md): research motivation,
-  literature review, and references from the supplied background document.
-- [`METHODS_CODE_MAP.md`](METHODS_CODE_MAP.md): code-derived executable methods.
-- [`DATA_DICTIONARY.md`](DATA_DICTIONARY.md): key analysis roles and provenance.
-- [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md): frozen environment and run protocol.
-- [`OUTPUTS.md`](OUTPUTS.md): output families and disclosure restrictions.
-- [`REVIEW_NOTES.md`](REVIEW_NOTES.md): supervisor feedback and release decisions.
-- [`REFACTOR_AUDIT.md`](REFACTOR_AUDIT.md): concise source-transformation record.
+- [Methods-to-code map](METHODS_CODE_MAP.md)
+- [Data dictionary](DATA_DICTIONARY.md)
+- [Reproducibility](REPRODUCIBILITY.md)
+- [Outputs and disclosure](OUTPUTS.md)
+- [Diagnostic download status](RESULTS_INDEX.md)
+- [Review priorities](REVIEW_NOTES.md)
+- [Source-preservation audit](REFACTOR_AUDIT.md)
+- [Runtime-version comparison](environment/RUNTIME_VERSIONS.csv)
+
+Existing research-background and previously approved results may remain in the
+repository. Do not replace earlier result folders with this dated candidate folder.
+The background's placeholder Methods/Results are not the methods source of truth.

@@ -1,8 +1,3 @@
-# Generated from the reviewed v8.28 production source.
-# Original lines: 1856-3337.
-# Module role: Shared utilities and provenance helpers.
-# See docs/REFACTOR_AUDIT.md for the exact transformation record.
-
 # 2) SMALL UTILITIES
 # =============================================================================
 
@@ -154,7 +149,7 @@ atomic_write_plain_csv <- function(x, path, row.names = FALSE, overwrite = FALSE
   utils::write.csv(xx, tf, row.names = row.names, na = "")
   if (isTRUE(verify)) {
     chk <- tryCatch(utils::read.csv(tf, stringsAsFactors = FALSE,
-                                   check.names = FALSE), error = function(e) e)
+                                    check.names = FALSE), error = function(e) e)
     if (inherits(chk, "error") || nrow(chk) != nrow(xx) ||
         ncol(chk) != ncol(xx))
       stop("CSV verification failed before commit for: ", path, call. = FALSE)
@@ -168,7 +163,7 @@ assert_fresh_output_dir <- function(path_dir, cfg, allowed_basenames = NULL) {
   ensure_output_dir(path_dir, cfg = cfg, test_write = TRUE)
   allowed <- if (is.null(allowed_basenames))
     cfg$safety$fresh_output_allowed_basenames %||% character(0) else
-    allowed_basenames
+      allowed_basenames
   if (!is.character(allowed) || anyNA(allowed) || any(!nzchar(trimws(allowed))) ||
       any(basename(allowed) != allowed))
     stop("Fresh-output allowlist must contain nonblank base filenames only.",
@@ -193,7 +188,7 @@ assert_planned_output_paths <- function(cfg, extra_filenames = character(0)) {
     b <- basename(f)
     c(build_unique_path(cfg, b),
       build_unique_diag_path(cfg,
-        file.path(cfg$global$output_dir, cfg$diagnostics$diagnostics_dir), b),
+                             file.path(cfg$global$output_dir, cfg$diagnostics$diagnostics_dir), b),
       file.path(cfg$global$output_dir, paste0("sens_", tag), b))
   }), use.names = FALSE)
   for (p in candidates) assert_path_length_safe(p, cfg, "planned output path")
@@ -201,22 +196,85 @@ assert_planned_output_paths <- function(cfg, extra_filenames = character(0)) {
 }
 
 
-# v6: Build a unique, self-describing filename for an output file.
-# The filename includes the base name, a tag summarizing the run (family,
-# wave, family_member, run_label), and an optional timestamp so
-# repeat runs never overwrite each other.
-# Example: "cv_tmle_results__HealthStatus__wave3__at_least_good__2026-04-23_143205.csv"
+# Build an output filename from its base name, outcome tag and optional
+# run timestamp. Atomic output safeguards reject unintended overwrites.
+
+
+short_name_hash <- function(x) {
+  ints <- utf8ToInt(enc2utf8(as.character(x)))
+  h <- 0
+  for (z in ints) h <- (h * 131 + z) %% 2147483647
+  sprintf("%08x", as.integer(h))
+}
+
+compact_output_basename <- function(base_filename, cfg) {
+  if (!isTRUE(cfg$global$short_file_names %||% FALSE)) return(base_filename)
+  ext_match <- regexpr("\\.[A-Za-z0-9]+$", base_filename)
+  if (ext_match > 0L) {
+    stem <- substr(base_filename, 1L, ext_match - 1L)
+    ext <- substr(base_filename, ext_match, nchar(base_filename))
+  } else { stem <- base_filename; ext <- "" }
+  repl <- c(
+    "cv_tmle_results"="tmle", "pipeline_timings"="time",
+    "sample_flow"="flow", "analysis_sample_audit"="sample",
+    "diagnostic_status"="status", "manuscript_summary"="msum",
+    "diagnostic_fit_bundle"="fit", "variable_selection_consistency"="sel_cons",
+    "learner_weight_summary"="lw_sum", "learner_weight_long"="lw",
+    "nuisance_outer_validation_summary"="nuis_val", "effective_sample_size"="ess",
+    "positivity_summary"="pos", "att_inference_robustness"="att_inf",
+    "att_positivity_control_weights"="att_pos", "protected_h1fs_att_balance"="h1_bal",
+    "dsp4_outcome_audit"="dsp4", "g_calibration_audit"="gcal",
+    "prognostic_score_balance"="prog_bal", "ovb_robustness_values"="ovb",
+    "adaptive_truncation_selection"="adtrunc",
+    "att_g_pi_clip_sensitivity"="clip", "att_mnar_breakdown_point"="mnar_bd",
+    "att_mnar_calibrated_sensitivity"="mnar_cal",
+    "att_fixed_nuisance_extreme_mean_bounds"="mnar_ext",
+    "balance_treatment_loveplot_data"="bal_a", "balance_factor_levels_treatment"="bal_lev",
+    "missing_outcome_audit"="miss", "earnings_tail_cap_audit"="tail",
+    "earnings_construction_audit"="earn_build", "outcome_construction_audit"="y_build",
+    "wave2_completion_model"="w2_comp", "mortality_composite_zero_at_death_audit"="mort_zero"
+  )
+  if (stem %in% names(repl)) stem <- unname(repl[stem])
+  stem <- gsub("variable_selection", "sel", stem, fixed = TRUE)
+  stem <- gsub("sensitivity", "sens", stem, fixed = TRUE)
+  stem <- gsub("diagnostic", "diag", stem, fixed = TRUE)
+  stem <- gsub("mortality", "mort", stem, fixed = TRUE)
+  stem <- gsub("treatment", "trt", stem, fixed = TRUE)
+  stem <- gsub("missingness", "miss", stem, fixed = TRUE)
+  stem <- gsub("inference", "inf", stem, fixed = TRUE)
+  stem <- gsub("balance", "bal", stem, fixed = TRUE)
+  stem <- gsub("calibrated", "cal", stem, fixed = TRUE)
+  stem <- gsub("construction", "build", stem, fixed = TRUE)
+  stem <- gsub("completion", "comp", stem, fixed = TRUE)
+  stem <- gsub("_+", "_", stem)
+  maxn <- as.integer(cfg$global$max_output_stem_chars %||% 30L)
+  if (!is.finite(maxn) || maxn < 16L) maxn <- 30L
+  if (nchar(stem) > maxn) {
+    hx <- short_name_hash(stem)
+    keep <- max(6L, maxn - 10L)
+    stem <- paste0(substr(stem, 1L, keep), "_", hx)
+  }
+  paste0(stem, ext)
+}
+
 build_run_tag <- function(cfg) {
   parts <- character(0)
-  if (!is.null(cfg$outcome$family))        parts <- c(parts, cfg$outcome$family)
-  if (!is.null(cfg$outcome$current_wave))  parts <- c(parts, sprintf("wave%d", cfg$outcome$current_wave))
-  if (!is.null(cfg$outcome$family_member)) parts <- c(parts, cfg$outcome$family_member)
-  if (!is.null(cfg$global$run_label) && nzchar(cfg$global$run_label))
-    parts <- c(parts, cfg$global$run_label)
-  if (length(parts) == 0L) parts <- "run"
-  tag <- paste(parts, collapse = "__")
-  tag <- gsub("[^A-Za-z0-9._=-]+", "_", tag)
-  tag
+  fam <- cfg$outcome$family %||% NULL
+  if (!is.null(fam)) {
+    fmap <- cfg$global$family_tag_map %||% character(0)
+    ftag <- if (fam %in% names(fmap)) unname(fmap[fam]) else fam
+    parts <- c(parts, ftag)
+  }
+  if (!is.null(cfg$outcome$current_wave)) parts <- c(parts, sprintf("w%d", cfg$outcome$current_wave))
+  member_tag <- c(at_least_hs="hs", at_least_some_college="sc", at_least_college_grad="ba", at_least_good="good")
+  if (!is.null(cfg$outcome$family_member)) {
+    mt <- unname(member_tag[cfg$outcome$family_member])
+    parts <- c(parts, if (is.na(mt)) cfg$outcome$family_member else mt)
+  }
+  if (!is.null(cfg$global$run_label) && nzchar(cfg$global$run_label)) parts <- c(parts, cfg$global$run_label)
+  if (!length(parts)) parts <- "run"
+  tag <- paste(parts, collapse = "_")
+  gsub("[^A-Za-z0-9._=-]+", "_", tag)
 }
 
 ensure_run_id <- function(cfg) {
@@ -242,6 +300,7 @@ runtime_provenance <- function() {
 }
 
 build_unique_diag_path <- function(cfg, out_dir, base_filename) {
+  base_filename <- compact_output_basename(base_filename, cfg)
   # Same naming scheme as build_unique_path but rooted under a custom
   # subdirectory (e.g., the diagnostics folder).
   ext_match <- regexpr("\\.[A-Za-z0-9]+$", base_filename)
@@ -253,13 +312,14 @@ build_unique_diag_path <- function(cfg, out_dir, base_filename) {
   }
   tag <- build_run_tag(cfg)
   ts  <- if (isTRUE(cfg$global$append_timestamp_to_outputs))
-           as.character(cfg$global$run_id %||% format(Sys.time(), "%Y-%m-%d_%H%M%S")) else NULL
+    as.character(cfg$global$run_id %||% format(Sys.time(), "%Y-%m-%d_%H%M%S")) else NULL
   pieces <- c(stem, tag, ts); pieces <- pieces[nzchar(pieces)]
   fname  <- paste0(paste(pieces, collapse = "__"), ext)
   file.path(out_dir, fname)
 }
 
 build_unique_path <- function(cfg, base_filename) {
+  base_filename <- compact_output_basename(base_filename, cfg)
   ext_match <- regexpr("\\.[A-Za-z0-9]+$", base_filename)
   if (ext_match > 0L) {
     stem <- substr(base_filename, 1L, ext_match - 1L)
@@ -269,7 +329,7 @@ build_unique_path <- function(cfg, base_filename) {
   }
   tag <- build_run_tag(cfg)
   ts  <- if (isTRUE(cfg$global$append_timestamp_to_outputs))
-           as.character(cfg$global$run_id %||% format(Sys.time(), "%Y-%m-%d_%H%M%S")) else NULL
+    as.character(cfg$global$run_id %||% format(Sys.time(), "%Y-%m-%d_%H%M%S")) else NULL
   pieces <- c(stem, tag, ts)
   pieces <- pieces[nzchar(pieces)]
   fname  <- paste0(paste(pieces, collapse = "__"), ext)
@@ -277,35 +337,54 @@ build_unique_path <- function(cfg, base_filename) {
 }
 
 configured_outcome_definition <- function(cfg) {
-  mort <- cfg$mortality_sensitivity %||% list()
+  wave <- cfg$outcome$current_wave %||% cfg$outcome$waves
+  mort <- if (length(wave) == 1L && is.numeric(wave)) resolve_mortality_spec(cfg, wave) else list(enabled = FALSE)
   mortality_txt <- if (isTRUE(mort$enabled) && isTRUE(mort$composite_zero_at_death)) {
-    sprintf(
-      paste0("mortality-inclusive past-year earnings composite; deaths %d-%d assigned observed zero; ",
-             "death classification uses %s independently of Wave-IV interview participation; ",
-             "%s is audit-only"),
-      as.integer(mort$death_year_start), as.integer(mort$death_year_end),
-      mort$source_var %||% "NDIDD19Y", mort$interview_year_var %||% "IYEAR4")
-  } else {
-    "ordinary configured outcome"
+    paste0("mortality-inclusive outcome; ", mortality_timing_rule_text(mort),
+           " assigned observed zero when classified pre-outcome")
+  } else "ordinary configured outcome"
+  fam <- cfg$outcome$family %||% "unknown"
+  fam_cfg <- cfg$outcome$families[[fam]] %||% list()
+  def <- if (!is.null(fam_cfg$definition_by_wave) && length(wave) == 1L)
+    unname(fam_cfg$definition_by_wave[as.character(wave)]) else NA_character_
+  if (fam %in% c("HoursWorked", "UsualHours"))
+    def <- sprintf("unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at %g", fam_cfg$cap_hours %||% 120)
+  if (identical(fam, "Compensation")) {
+    cap_q <- cfg$outcome$continuous_upper_quantile %||% NA_real_
+    cap_txt <- if (is.finite(cap_q) && cap_q < 1) sprintf("weighted upper cap q=%.4f", cap_q) else "no quantile cap"
+    return(paste(mortality_txt, "nominal past-year personal earnings", cap_txt, sep = "; "))
   }
-  cap_q <- cfg$outcome$continuous_upper_quantile %||% NA_real_
-  cap_txt <- if (is.finite(cap_q) && cap_q < 1)
-    sprintf("weighted upper cap q=%.4f", cap_q) else "no quantile cap"
-  price_txt <- if (identical(cfg$outcome$family, "Compensation"))
-    (mort$earnings_price_basis %||% "nominal_past_year_dollars_no_inflation_adjustment") else
-    "configured outcome units"
-  paste(mortality_txt, cap_txt, price_txt, sep = "; ")
+  if (identical(fam, "EducationalAttainment")) {
+    member <- cfg$outcome$family_member %||% "all three primary nested thresholds"
+    timing <- if (length(wave) == 1L && identical(as.integer(wave), 3L))
+      "attainment-to-date" else "attainment"
+    return(paste(mortality_txt, timing, member, sep = "; "))
+  }
+  if (identical(fam, "HealthStatus"))
+    return(paste(mortality_txt, "at least good self-rated health", sep = "; "))
+  status_txt <- if (identical(resolve_status_mode(cfg), "composite"))
+    "US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR" else
+    if (identical(cfg$analysis$dsp4_mode, "exclude_sensitivity"))
+        "verified noncivilian/nonresident statuses excluded; post-exposure-selected population" else NULL
+  paste(na.omit(c(mortality_txt, if (is.character(def) && nzchar(def)) def else fam, status_txt)), collapse = "; ")
 }
 
+
+# Enable ratio translations only for a verified outcome family whose
+# configured scale has a meaningful positive component-mean denominator.
 
 compensation_ratio_translation_enabled <- function(cfg) {
   family <- cfg$outcome$family %||% NA_character_
   fam_cfg <- if (!is.null(family) && family %in% names(cfg$outcome$families))
     cfg$outcome$families[[family]] else list()
-  identical(family, "Compensation") &&
-    identical(tolower(cfg$outcome$compensation_transform %||% "identity"),
-              "identity") &&
-    isTRUE(fam_cfg$report_ratio_translations %||% FALSE)
+  if (!family %in% names(cfg$outcome$families) ||
+      !length(supported_outcome_waves(family)) ||
+      !isTRUE(fam_cfg$report_ratio_translations %||% FALSE)) return(FALSE)
+  if (identical(family, "Compensation"))
+    return(identical(tolower(cfg$outcome$compensation_transform %||% "identity"),
+                     "identity"))
+  family %in% c("EducationalAttainment", "HealthStatus",
+                "LaborForceParticipation", "HoursWorked")
 }
 
 configured_outcome_scale <- function(cfg, outcome_type = NULL) {
@@ -345,6 +424,11 @@ strip_runtime_config_state <- function(cfg, analysis_only = FALSE) {
   if (!is.null(z$final_tmle)) {
     z$final_tmle$screen_y_lower <- NULL
     z$final_tmle$screen_y_upper <- NULL
+    if (!is.null(z$final_tmle$g_lower_runtime) &&
+        isTRUE(all.equal(z$final_tmle$g_lower,z$final_tmle$g_lower_runtime$value)))
+      z$final_tmle$g_lower <- z$final_tmle$g_lower_configured
+    z$final_tmle$g_lower_runtime <- NULL
+    z$final_tmle$g_lower_configured <- NULL
   }
   if (!is.null(z$provenance)) z$provenance <- NULL
   if (isTRUE(analysis_only)) {
@@ -415,7 +499,7 @@ get_frozen_config_hash <- function(cfg, which = c("resolved", "analysis")) {
     p$resolved_run_config_md5 %||% NA_character_
 }
 
-# v6: wrapper around write.csv that uses build_unique_path and writes a
+# wrapper around write.csv that uses build_unique_path and writes a
 # metadata header describing the run configuration. This makes every CSV
 # self-identifying when emailed or stored outside the run folder.
 provenance_metadata_lines <- function(cfg, path, base_filename) {
@@ -426,9 +510,9 @@ provenance_metadata_lines <- function(cfg, path, base_filename) {
     sprintf("# Generated:     %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")),
     sprintf("# Base name:     %s", base_filename),
     sprintf("# Outcome:       family=%s, wave=%s, member=%s",
-      cfg$outcome$family %||% "NA",
-      as.character(cfg$outcome$current_wave %||% "NA"),
-      cfg$outcome$family_member %||% "NA"),
+            cfg$outcome$family %||% "NA",
+            as.character(cfg$outcome$current_wave %||% "NA"),
+            cfg$outcome$family_member %||% "NA"),
     sprintf("# Run ID:        %s", cfg$global$run_id %||% ""),
     sprintf("# Pipeline seed: %s", cfg$global$pipeline_seed),
     sprintf("# Pipeline ver.: %s", cfg$global$version %||% ""),
@@ -437,7 +521,7 @@ provenance_metadata_lines <- function(cfg, path, base_filename) {
     sprintf("# Run config:    %s", get_frozen_config_hash(cfg, "resolved")),
     sprintf("# Run label:     %s", cfg$global$run_label %||% "NA"),
     sprintf("# Outcome def:   %s", cfg$provenance$outcome_definition %||%
-      configured_outcome_definition(cfg)),
+              configured_outcome_definition(cfg)),
     sprintf("# R version:     %s", rt$R_version %||% runtime_provenance()$R_version),
     sprintf("# Package vers.: %s", rt$packages %||% runtime_provenance()$packages))
 }
@@ -461,7 +545,7 @@ write_provenance_csv_at_path <- function(x, cfg, path, base_filename,
     col.names = TRUE, append = TRUE, qmethod = "double", na = ""))
   if (isTRUE(cfg$safety$verify_atomic_writes %||% TRUE)) {
     chk <- tryCatch(utils::read.csv(tf, stringsAsFactors = FALSE,
-      check.names = FALSE, comment.char = "#"), error = function(e) e)
+                                    check.names = FALSE, comment.char = "#"), error = function(e) e)
     if (inherits(chk, "error") || nrow(chk) != nrow(xx) || ncol(chk) != ncol(xx))
       stop("CSV verification failed before commit for: ", path, call. = FALSE)
   }
@@ -607,8 +691,8 @@ canonicalize_factor_text <- function(x) {
 }
 
 assert_reserved_factor_labels_safe <- function(x, general_mask, skip_mask,
-                                                reserved_labels, variable_name,
-                                                context) {
+                                               reserved_labels, variable_name,
+                                               context) {
   xc <- canonicalize_factor_text(x)
   substantive <- !(general_mask | skip_mask) & !is.na(xc)
   collision <- sort(unique(xc[substantive & xc %in% reserved_labels]))
@@ -650,6 +734,30 @@ assert_no_missing_indicator_name_collisions <- function(raw_names, numeric_names
 # low (6/7/8/9), high (96/97/98/99), or wider exact family. Frequency is never
 # used to reject a code, because legitimate skips can be the majority of rows.
 learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
+  key <- if (length(variable_name) == 1L && !is.na(variable_name))
+    canonical_role_key(variable_name) else NA_character_
+  exact <- if (!is.na(key)) cfg_pre$codebook_missing_overrides[[key]] else NULL
+  if (!is.null(exact)) {
+    # Retain existing type inference unless the codebook specifies a type.
+    fallback_cfg <- cfg_pre
+    fallback_cfg$codebook_missing_overrides <- NULL
+    rule <- learn_conservative_missing_rule(x, fallback_cfg, variable_name)
+    if (!isTRUE(rule$numeric_coded) && any(!character_native_missing_mask(x)))
+      stop("Codebook rule requires numeric codes for ", variable_name, call. = FALSE)
+    rule$numeric_coded <- TRUE
+    rule$general_codes <- sort(unique(as.numeric(exact$general)))
+    rule$skip_codes <- sort(unique(as.numeric(exact$skip)))
+    if (length(intersect(rule$general_codes, rule$skip_codes)))
+      stop("Overlapping general/skip codebook codes for ", variable_name, call. = FALSE)
+    if (!is.null(exact$as_factor)) rule$as_factor <- isTRUE(exact$as_factor)
+    rule$recognized_families <- "codebook_exact"
+    rule$scheme_decision <- "codebook_exact_override"
+    rule$reason <- paste0("verified_variable_specific_codes;", exact$source)
+    masks <- missing_masks_from_rule(x, rule)
+    rule$n_unique_substantive <- length(unique(
+      masks$numeric[!(masks$general | masks$skip)]))
+    return(rule)
+  }
   raw_missing <- character_native_missing_mask(x)
   x_for_parse <- x
   if (is.factor(x_for_parse) || is.character(x_for_parse)) {
@@ -662,7 +770,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
   original_factor <- is.factor(x) || is.character(x)
   forced_factor <- is_forced_factor_name(variable_name, cfg_pre)
   questionnaire_source <- is_questionnaire_source_name(variable_name, cfg_pre)
-
+  
   # Fully nonnumeric character/factor variables are valid categorical fields.
   # They use native NA only because numeric Add Health reserve-code families
   # cannot be inferred from text labels. A mixture of numeric and nonnumeric
@@ -690,7 +798,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
       variable_name %||% "<unnamed>", sum(bad_parse), paste(examples, collapse = ", ")),
       call. = FALSE)
   }
-
+  
   empty_rule <- list(
     classifier = "global_source_informed_exact_v1",
     numeric_coded = !(original_factor && !any(nonmissing)),
@@ -704,13 +812,13 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
     n_finite = sum(parsed), n_unique_finite = 0L, n_unique_substantive = 0L,
     integer_like_prop = NA_real_)
   if (!any(parsed)) return(empty_rule)
-
+  
   zf <- z[parsed]
   tol <- cfg_pre$auto_integer_tolerance %||% 1e-8
   integer_like <- abs(zf - round(zf)) <= tol * pmax(1, abs(zf))
   integer_like_prop <- mean(integer_like)
   n_unique <- length(unique(zf))
-
+  
   families <- conventional_special_code_families(cfg_pre)
   low_fam <- families[[1L]]
   high_fam <- families[[2L]]
@@ -719,7 +827,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
   n_unique_substantive <- length(unique(substantive_all))
   unique_prop_substantive <- if (length(substantive_all))
     n_unique_substantive / length(substantive_all) else 0
-
+  
   wide_codes <- unique(unlist(lapply(
     families[vapply(families, function(f) f$digits >= 3L, logical(1))],
     function(f) c(f$general, f$skip))))
@@ -732,7 +840,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
     is.finite(pct_min) && is.finite(pct_max) && pct_min >= 0 && pct_max <= 100 &&
     pct_n_unique >= (cfg_pre$auto_percentage_min_unique %||% 20L) &&
     (pct_max - pct_min) >= (cfg_pre$auto_percentage_min_span %||% 50)
-
+  
   z_unique_int <- sort(unique(round(zf[integer_like])))
   dense_small_count <- FALSE
   if (length(z_unique_int)) {
@@ -742,7 +850,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
       length(z_unique_int) >= (cfg_pre$auto_dense_small_count_min_unique %||% 8L) &&
       identical(z_unique_int, seq.int(lo, hi))
   }
-
+  
   max_abs_substantive <- if (length(substantive_all)) max(abs(substantive_all)) else 0
   auto_categorical <-
     integer_like_prop >= (cfg_pre$auto_integer_like_min_prop %||% 0.99) &&
@@ -752,20 +860,20 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
           unique_prop_substantive <= (cfg_pre$auto_questionnaire_max_unique_prop %||% 0.01)))
   if (dense_small_count && !questionnaire_source && !forced_factor && !original_factor)
     auto_categorical <- FALSE
-
+  
   categorical_questionnaire <-
     (questionnaire_source && (forced_factor || original_factor || auto_categorical)) ||
     (forced_factor && !(variable_name %in% (cfg_pre$nonquestionnaire_long_factors %||% character(0))))
   questionnaire_like <- questionnaire_source || categorical_questionnaire
   as_factor <- forced_factor || original_factor || auto_categorical
-
+  
   general_codes <- numeric(0); skip_codes <- numeric(0)
   recognized <- character(0); reasons <- character(0)
   scheme_decision <- "none"
-
+  
   obs_low <- intersect(unique(zf), c(low_fam$general, low_fam$skip))
   obs_high <- intersect(unique(zf), c(high_fam$general, high_fam$skip))
-
+  
   # Wider exact field-width families take precedence. Only the exact family is
   # considered: 19,996 is never treated as code 9,996.
   wide_families <- families[vapply(families, function(f) f$digits >= 3L, logical(1))]
@@ -789,7 +897,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
     }
   }
   has_supported_wide <- !is.null(chosen_wide)
-
+  
   # For low-versus-high inference, 7/8/9 are decisive evidence for the
   # low scheme. Exact 6 alone is not: Add Health items with substantive category
   # 6 use 96-99 for nonresponse, so 6 is retained when 7/8/9 are absent.
@@ -833,7 +941,7 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
     recognized <- c(recognized, chosen_wide$name)
     reasons <- c(reasons, paste0(chosen_wide$name, "_widest_observed_above_ordinary_support"))
   }
-
+  
   if (!is.null(variable_name) &&
       variable_name %in% (cfg_pre$known_codebook_overlap_vars %||% character(0)) &&
       identical(cfg_pre$known_overlap_policy %||% "preserve_as_substantive",
@@ -844,11 +952,11 @@ learn_conservative_missing_rule <- function(x, cfg_pre, variable_name = NULL) {
     scheme_decision <- "known_overlap_preserved"
     reasons <- c(reasons, "known_codebook_overlap_preserved_as_substantive")
   }
-
+  
   support_type <- if (categorical_questionnaire) "categorical_questionnaire" else
     if (questionnaire_source) "questionnaire_numeric_or_count" else
       "continuous_contextual_or_other"
-
+  
   list(
     classifier = "global_source_informed_exact_v1", numeric_coded = TRUE,
     support_type = support_type, questionnaire_source = questionnaire_source,
@@ -1278,7 +1386,7 @@ sanitize_column_names <- function(df) {
   list(data = df, old_to_new = old_to_new)
 }
 
-# v5.1: Convert all factor columns to dummy (indicator) variables so that
+# Convert all factor columns to dummy (indicator) variables so that
 # every learner in the SuperLearner library receives pure numeric input.
 # Without this, as.matrix on a mixed data.frame coerces the entire matrix
 # to character, which crashes xgboost and inflates memory by ~10x.
@@ -1304,7 +1412,7 @@ expand_factors_to_numeric <- function(df) {
     dummy_parts[[fn]] <- mm
   }
   if (length(dummy_parts) == 0L) return(num_part)
-  # v6: ensure data.frame return type. cbind(data.frame, matrix) can return
+  # ensure data.frame return type. cbind(data.frame, matrix) can return
   # a matrix under R's method dispatch, which crashes earth's formula path.
   out <- cbind(num_part, do.call(cbind, dummy_parts))
   if (!is.data.frame(out)) out <- as.data.frame(out, stringsAsFactors = FALSE)
@@ -1316,7 +1424,7 @@ compute_earnings <- function(h4ec2, h4ec3, cfg_outcome) {
     stop("Exact and bracket earnings variables must have the same length.", call. = FALSE)
   exact   <- suppressWarnings(as.numeric(as.character(h4ec2)))
   bracket <- suppressWarnings(as.numeric(as.character(h4ec3)))
-
+  
   valid_exact <- is.finite(exact) &
     exact >= (cfg_outcome$exact_valid_min %||% 0) &
     exact <= (cfg_outcome$exact_valid_max %||% 999995)
@@ -1326,7 +1434,7 @@ compute_earnings <- function(h4ec2, h4ec3, cfg_outcome) {
     stop("Unexpected finite exact-earnings code(s): ",
          paste(unexpected_exact, collapse = ", "), call. = FALSE)
   }
-
+  
   valid_bracket_codes <- as.numeric(cfg_outcome$bracket_valid_codes %||% names(cfg_outcome$bracket_map))
   valid_bracket <- is.finite(bracket) & bracket %in% valid_bracket_codes
   known_bracket_missing <- is.na(bracket) |
@@ -1336,7 +1444,7 @@ compute_earnings <- function(h4ec2, h4ec3, cfg_outcome) {
     stop("Unexpected finite bracket-earnings code(s): ",
          paste(unexpected_bracket, collapse = ", "), call. = FALSE)
   }
-
+  
   out <- rep(NA_real_, length(exact))
   source <- rep("missing_both", length(exact))
   out[valid_exact] <- exact[valid_exact]
@@ -1345,7 +1453,7 @@ compute_earnings <- function(h4ec2, h4ec3, cfg_outcome) {
   out[use_bracket] <- unname(cfg_outcome$bracket_map[as.character(bracket[use_bracket])])
   source[use_bracket] <- "bracket_midpoint"
   source[!valid_exact & !valid_bracket & known_exact_missing] <- "exact_missing_no_valid_bracket"
-
+  
   audit <- data.frame(
     metric = c("n_total", "n_exact_valid", "n_zero_exact", "n_exact_missing_code",
                "n_bracket_substituted", "n_missing_after_both", "n_top_open_bracket"),
@@ -1454,8 +1562,8 @@ plot_knee_curve <- function(knee_obj, label_y = "Score") {
        pos = 4, xpd = NA)
 }
 
-# v5.1: Harmonize cutoff_rule and the legacy use_knee_cutoff toggle.
-# Precedence: explicit cutoff_rule wins; otherwise fall back to legacy toggle.
+# Resolve the rough-screen cutoff rule. An explicit cutoff_rule takes
+# precedence over use_knee_cutoff.
 resolve_cutoff_rule <- function(rp_cfg) {
   if (!is.null(rp_cfg$cutoff_rule)) return(rp_cfg$cutoff_rule)
   if (isTRUE(rp_cfg$use_knee_cutoff))  return("knee")
@@ -1467,7 +1575,7 @@ resolve_cutoff_rule <- function(rp_cfg) {
   "knee"
 }
 
-# v5.1: Unified cutoff application for the rough prescreen.
+# Unified cutoff application for the rough prescreen.
 # "positive" keeps variables that beat the null model (score > min_score).
 # "knee" uses the geometric knee on the sorted-score curve.
 # "topk" keeps the top max_keep variables by score.
@@ -1475,10 +1583,10 @@ resolve_cutoff_rule <- function(rp_cfg) {
 apply_cutoff <- function(scores, knee, rule, min_score = 0, max_keep = 2000L) {
   s <- sort(scores[is.finite(scores)], decreasing = TRUE)
   kept <- switch(rule,
-    "knee"     = s[s >= knee$value],
-    "positive" = s[s >  min_score],
-    "topk"     = s[seq_len(min(length(s), max_keep))],
-    s[s >= knee$value])
+                 "knee"     = s[s >= knee$value],
+                 "positive" = s[s >  min_score],
+                 "topk"     = s[seq_len(min(length(s), max_keep))],
+                 s[s >= knee$value])
   if (length(kept) > max_keep) kept <- kept[seq_len(max_keep)]
   kept
 }

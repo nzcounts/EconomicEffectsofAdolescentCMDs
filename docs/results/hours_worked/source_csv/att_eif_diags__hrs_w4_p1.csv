@@ -1,0 +1,15 @@
+metric,value
+psi_att,-2.04074728848532
+att_se,1.15251541417669
+att_se_centered,1.15251541417669
+eif_weighted_mean,4.7108133196774e-12
+pi_set_to_one_wiring_check,-1.95859021960987
+pi_set_to_one_wiring_gap,0.0821570688754498
+n_clusters,132
+small_sample_correction,1.00763358778626
+eif_min,-1198.23330237187
+eif_max,1620.73705434288
+eif_sd_unweighted,100.661473629022
+weighted_eif_sd,129.608305049483
+max_abs_cluster_eic,4471.69173545763
+sum_cluster_eic_sq,240370287.137265

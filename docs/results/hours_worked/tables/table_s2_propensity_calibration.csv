@@ -1,0 +1,6 @@
+fold,target,requested_method,fitted_method,selection_candidates,cv_logloss_identity,cv_logloss_platt,platt_intercept,platt_slope,calibration_labels
+1,g,select,platt,identity;platt,0.239243979384367,0.237958469410439,0.270949323858889,1.17295553332559,outer_training_only
+2,g,select,platt,identity;platt,0.230022292837462,0.229240103006621,0.28597967318164,1.17876080994279,outer_training_only
+3,g,select,platt,identity;platt,0.231470122872893,0.230855482358019,0.275021016527998,1.19679473484297,outer_training_only
+4,g,select,platt,identity;platt,0.237947820928938,0.237904983446516,0.255877557514235,1.17214332526383,outer_training_only
+5,g,select,platt,identity;platt,0.231544108407994,0.230654072820528,0.269248750075075,1.17632596870828,outer_training_only

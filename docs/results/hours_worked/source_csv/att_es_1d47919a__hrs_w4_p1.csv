@@ -1,0 +1,9 @@
+component,value
+contrast_term_sum,-2565.75631038948
+treated_residual_term_sum,5.88747275931389e-09
+control_residual_term_sum,-3.45171217996931e-11
+denominator_weighted_treated,1257.2631235952
+contrast_term_per_treated,-2.04074728848532
+treated_residual_per_treated,4.68276898353498e-12
+control_residual_per_treated,-2.74541749868476e-14
+psi_att_total,-2.04074728848061

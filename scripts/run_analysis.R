@@ -19,10 +19,6 @@ cfg <- read_project_config(cfg, config_path, project_root = project_root)
 cfg$global$autorun_pipeline <- FALSE
 assert_restricted_inputs_present(cfg)
 
-if (isTRUE(cfg$stages$run_multiseed_att)) {
-  results <- run_multiseed_att(cfg, seeds = cfg$global$multiseed_seeds)
-} else {
-  results <- run_addhealth_pipeline(cfg)
-}
+results <- run_configured_analysis(cfg)
 
 invisible(results)

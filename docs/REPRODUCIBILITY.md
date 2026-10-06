@@ -1,61 +1,56 @@
-# Reproducibility guide
+# Reproducibility
 
-## Frozen environment
+## Read before running
 
-The production configuration enforces R 4.4.1 and the following exact analysis
-package versions before restricted data are read:
+The code declares R 4.4.1 and exact package requirements. The diagnostic run
+records R 4.4.1, but dplyr 1.2.1 rather than the code's required 1.1.4.
+See [RUNTIME_VERSIONS.csv](environment/RUNTIME_VERSIONS.csv). Do not silently
+disable version validation or change the recorded environment to make them agree.
+Confirm the actual producing script/configuration with the analyst.
 
-| Package | Version |
-|---|---:|
-| `haven` | 2.5.4 |
-| `dplyr` | 1.1.4 |
-| `purrr` | 1.0.2 |
-| `SuperLearner` | 2.0.29 |
-| `glmnet` | 4.1.8 |
-| `survey` | 4.4.2 |
-| `ranger` | 0.16.0 |
-| `xgboost` | 1.7.8.1 |
-| `Matrix` | 1.7.4 |
+An old root `renv.lock` should be moved to `docs/archive/renv-v833.lock` when
+applying this update, not treated as the v8.44 run lock. The provided historical
+copy is labelled as such. A complete current lock has not been fabricated from
+CSV headers: transitive dependencies and package sources cannot be recovered
+from those headers alone. Ask the analyst to export `renv::snapshot()` from the
+actual approved environment after resolving the source/environment discrepancy.
 
-`renv.lock` records these direct production dependencies plus repository tooling.
-After the first successful restore on the approved analysis platform, run
-`renv::snapshot()` and review any added transitive dependency records before
-tagging the release. Do not update packages opportunistically between the
-headline analysis and its sensitivity or multiseed runs.
+## Configuration
 
-## Clean-room run sequence
+Copy `config/config.example.yml` to `config/config.yml` and edit only inside the
+approved workspace. Paths are resolved relative to the YAML file. Use a new output
+directory for each primary/sensitivity run; do not reuse an old directory or cache
+merely because the family name is unchanged. Never commit the completed YAML.
 
-1. Clone the repository into the restricted workspace.
-2. Verify the commit or release tag and record it in the analysis log.
-3. Restore the R environment with `renv::restore()`.
-4. Copy `config/config.example.yml` to the ignored `config/config.yml` and
-   resolve all 16 restricted source paths.
-5. Run `Rscript scripts/run_preflight.R` in a clean session.
-6. Create a fresh, empty output directory.
-7. Run `Rscript scripts/run_analysis.R --config=config/config.yml`.
-8. Require the pipeline's `PUBLICATION_READY.txt` marker before treating a run
-   as complete.
-9. Review the output inventory, diagnostic-status table, sample-flow gates,
-   nuisance fallbacks, targeting checks, and disclosure status.
-10. Archive the exact Git commit, ignored local configuration, R session
-    information, and output manifest inside the restricted project record.
+Defaults and final source-time overrides are loaded before the local YAML overlay.
+The wrapper sets source provenance to the full numbered `R/` tree. Do not source
+one module in isolation. Run `scripts/run_analysis.R` from the project root.
 
-## Determinism and provenance
+For Wave-III exposure-scope comparisons, configure Wave-III input paths and
+confirm codebook fields. `durable_control` is a post-exposure-selected secondary
+contrast; disable prevalence-based translation as required by the validator.
 
-- The designated headline seed is 1.
-- The full ten-seed stability set is fixed in `cfg$global$multiseed_seeds`.
-- Whole-school outer and internal folds are deterministically generated from
-  configured seeds.
-- Run outputs carry source, analysis-specification, resolved-configuration, and
-  input-file fingerprints.
-- In the modular repository, the source fingerprint hashes every numbered R
-  module in stable relative-path order and is checked again before completion.
-- Multi-seed summaries are descriptive algorithmic-stability diagnostics and
-  must not be pooled into a new inferential confidence interval.
+## Validation
 
-## CI boundary
+Lightweight CI parses/sources modules and runs structural/focused tests without
+restricted inputs. The full native synthetic preflight uses the declared learner
+stack; run it before production. Preparation checks here did not execute R, so
+successful native tests or empirical reproduction are not claimed.
 
-Default CI performs structural, configuration, and restricted-artifact checks
-without Add Health data. Run the complete synthetic preflight locally after the
-frozen learner stack is available. No CI workflow downloads or requests
-restricted Add Health inputs.
+```bash
+Rscript tests/testthat.R
+Rscript scripts/run_preflight.R
+Rscript scripts/run_analysis.R --config=config/config.yml
+```
+
+The configured production entry point also honours the enabled preflight switch.
+An explicit preflight command is a separate validation session, not a reason to
+bypass an enabled production check. Optional full-refit sensitivities and repeated
+splits are disabled by default and may be expensive.
+
+## Source identity
+
+Comment cleaning changes raw file hashes even when executable bytes match.
+Modularization also changes file identity. Source lineage documents the attached
+file used for preparation; it does not resolve the older recorded run fingerprint.
+Do not rewrite empirical CSV hashes to the new modular source hash.

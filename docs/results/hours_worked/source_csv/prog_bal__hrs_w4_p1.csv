@@ -1,0 +1,10 @@
+metric,value,score_source
+prognostic_smd_pre,-0.87385615839425,this_run_refitted
+prognostic_smd_post,-0.0948782313666524,this_run_refitted
+prognostic_mean_treated,29.9021669948429,this_run_refitted
+prognostic_mean_control_pre,34.1964046206537,this_run_refitted
+prognostic_mean_control_post,30.3684104001119,this_run_refitted
+prognostic_pooled_sd,4.91412412049794,this_run_refitted
+prognostic_gap_outcome_units,-0.466243405269051,this_run_refitted
+n_treated,1342,this_run_refitted
+n_control,12158,this_run_refitted
