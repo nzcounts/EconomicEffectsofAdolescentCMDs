@@ -1,0 +1,43 @@
+# File:          flow__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:51:52 EST
+# Base name:     sample_flow.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"step","n"
+"wave1_merged",20745
+"complete_wave2_cesd",14660
+"mortality_zero_before_weight_drop",143
+"outcome_observed_before_weight_drop",11717
+"invalid_weight_dropped",1161
+"strata_final",4
+"unrestricted_valid_weight_n",13499
+"wave1_total_missing",69
+"after_wave1_scope_n",13499
+"after_exposure_scope_n",13499
+"verified_status_excluded_n",0
+"valid_weight_final",13499
+"treated_final",1342
+"outcome_observed_final",11373
+"psu_final",132
+"control_final",12157
+"outcome_missing_final",2126
+"earnings_exact_final",
+"earnings_bracket_final",
+"mortality_zero_final",128
+"contribution_verified_structural_zero",607
+"contribution_mortality_zero",128
+"contribution_other_verified_zero",479
+"contribution_interview_reported",10766
+"contribution_outcome_missing",2126
+"contribution_interview_observed_rate",0.835091529630779
+"valid_zero_exact_final",
+"full_design_psu",132

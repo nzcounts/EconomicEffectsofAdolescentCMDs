@@ -1,0 +1,17 @@
+# File:          att_ba_77b50fc2__hrs_w4_p1.csv
+# Generated:     2026-11-10 20:30:22 EST
+# Base name:     att_balance_nonlinear_terms.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"variable","type","smd_pre","smd_post","smd_pre_pooled_sd","smd_post_pooled_sd","max_level","n_observed_group1","n_observed_group0","ess_observed_group1_pre","ess_observed_group0_pre","ess_observed_group1_post","ess_observed_group0_post","missing_smd_pre","missing_smd_post","sparse_observed_support","smd_post_moving_sd","variance_ratio_pre","variance_ratio_post","ks_pre","ks_post","expression"
+"MHSum_W1_squared","numeric",0.836339030772315,-0.013002745103422,1.08187240857501,-0.0168201060162595,,1336,12094,719.449404033916,6660.74772132665,719.449404033916,743.370064453606,0.00357176038182914,0.0219473864319488,FALSE,-0.0122358531429223,5.12280264064132,0.794559026173972,0.511611305622275,0.0443509401699558,"MHSum_W1^2"
+"MHSum_W1_x_female","numeric",0.697446995570713,-0.0202053774960635,0.853218707885819,-0.0247181595003209,,1336,12094,719.449404033916,6660.74772132665,719.449404033916,743.370064453606,0.00357176038182914,0.0219473864319488,FALSE,-0.0194041696878674,2.97278197938543,0.855745450858199,0.379562209230511,0.0449400130976561,"MHSum_W1 * (as.character(BIO_SEX) == ""2"")"

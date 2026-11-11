@@ -1,0 +1,40 @@
+# File:          joint_resid__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:50:06 EST
+# Base name:     joint_resid.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"term","estimate","se","statistic","p_value","joint_p","n_controls","psu_controls","interpretation"
+"(Intercept)",-0.55566194612319,1.30667182313573,-0.425249811226297,0.671533194690883,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA1210",10.3858500252674,10.0299869181115,1.03547991737789,0.302846573013365,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA122",-0.411929275903415,1.63659695483692,-0.251698669416419,0.801770685981939,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA123",6.38131025091994,2.82534392309711,2.25859591774046,0.0259957308229656,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA124",1.6064188466642,1.40062065816186,1.14693356641793,0.254040889193011,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA125",-1.19705915903299,1.79257046120292,-0.667789180364877,0.505747392464554,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA126",2.42006679257341,1.45363553117363,1.66483739608339,0.0989551600836786,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA127",1.15701546204514,1.44073544715656,0.803072808633,0.42376420299436,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA128",0.112235567673439,1.47596752967196,0.0760420303408596,0.9395317488502,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA129",2.75113161600974,1.63547939468788,1.68215608520997,0.0955388753826982,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"PA12Missing",2.13331222067531,1.43437802448085,1.48727335769622,0.139968282254359,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED122",-0.689688467537617,0.710769733992816,-0.970340230531802,0.334128258930291,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED123",-0.852256479190772,0.762390927262049,-1.1178733228784,0.266196745032094,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED124",-2.04247078396756,0.971342051585054,-2.10273073283981,0.037902876607073,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED125",-6.01538693732198,1.93170442274606,-3.1140307318708,0.00238441798285926,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED126",-0.220892820419445,3.08357967437973,-0.0716351914804596,0.943029812023718,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED12Missing",-6.59764287222465,4.06884191835221,-1.62150385898908,0.107937584047988,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1ED12Skip",-0.727029342391969,2.55491771951101,-0.284560765632451,0.776546511908351,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GI41",2.10443637829069,1.01142834862292,2.08065789450724,0.039922245713271,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GI4Missing",-1.82173340038907,5.35963848647711,-0.33989855938707,0.734618429523959,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GH491",0.859907635490746,0.643339024192143,1.33663216928361,0.184259510480061,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GH492",0.465349889403831,2.44293111006002,0.190488338982428,0.849297821293242,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GH493",-5.42761125696919,4.11162928453321,-1.32006338153742,0.189711983226111,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GH494",1.40946799818997,7.88710156416474,0.178705445431808,0.858516659014962,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"
+"H1GH49Missing",15.2761488339632,6.57591021164866,2.32304705239174,0.0221231896140662,0.000225595335864211,9709,132,"fixed_fit_descriptive_residual_association_not_ATT_bias"

@@ -1,0 +1,23 @@
+# File:          att_ad_2c3e7de6__hrs_w4_p1.csv
+# Generated:     2026-11-10 20:56:54 EST
+# Base name:     att_additive_bias_sensitivity.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"assumed_estimator_bias","assumed_bias_over_outcome_sd","adjusted_att","conditional_ci_lower","conditional_ci_upper","bias_to_null_point","bias_to_ci_touch_null","primary_att","primary_se","inference_df","outcome_sd_used","bias_treated_as_fixed","interpretation"
+-4.17849754131456,-0.2,2.09707067192397,-0.170145061869807,4.36428640571774,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+-2.08924877065728,-0.1,0.00782190126668647,-2.25939383252709,2.27503763506046,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+-2.08142686939059,-0.0996256117808208,0,-2.26721573379377,2.26721573379377,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+-1.04462438532864,-0.05,-1.03680248406195,-3.30401821785573,1.23041324973182,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+0,0,-2.08142686939059,-4.34864260318437,0.18578886440318,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+1.04462438532864,0.05,-3.12605125471923,-5.39326698851301,-0.85883552092546,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+2.08924877065728,0.1,-4.17067564004787,-6.43789137384165,-1.9034599062541,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."
+4.17849754131456,0.2,-6.25992441070515,-8.52714014449893,-3.99270867691138,-2.08142686939059,0,-2.08142686939059,1.14582763170519,128,20.8924877065728,TRUE,"Descriptive fixed-bias scenarios; not partial-R2 or measured-confounder calibration."

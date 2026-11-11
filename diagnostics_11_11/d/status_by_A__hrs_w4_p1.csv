@@ -1,0 +1,29 @@
+# File:          status_by_A__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:50:04 EST
+# Base name:     status_by_A.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"exposure","reason","n","weighted_arm_fraction","verified_status_zeros","interview_reference_n","disposition_reference_n","military_response_conflicts","missing_to_zero","nonzero_to_zero","nonzero_to_missing","outcome_still_missing"
+0,"eligible",9715,0.80339452244309,0,9715,0,0,0,0,0,6
+0,"unresolved",1896,0.153280463268197,0,0,1896,0,0,0,0,1896
+0,"incarcerated",105,0.00826895395286506,105,37,68,0,105,0,0,0
+0,"active_duty_military",227,0.0181356408464043,227,164,63,0,227,0,0,0
+0,"mortality_handled_separately",116,0.0100753166151291,0,0,116,0,0,0,0,0
+0,"nonresident",91,0.00653337369620513,91,0,91,0,91,0,0,0
+0,"institutionalized",7,0.000311729178109166,7,0,7,0,7,0,0,0
+1,"eligible",1058,0.793228106939577,0,1058,0,0,0,0,0,1
+1,"unresolved",223,0.154715943338416,0,0,223,0,0,0,0,223
+1,"incarcerated",18,0.0161314194468767,18,11,7,0,18,0,0,0
+1,"active_duty_military",15,0.0127486272305077,15,12,3,0,15,0,0,0
+1,"mortality_handled_separately",12,0.0107724671451866,0,0,12,0,0,0,0,0
+1,"nonresident",13,0.00965460252293702,13,0,13,0,13,0,0,0
+1,"institutionalized",3,0.0027488333764995,3,0,3,0,3,0,0,0

@@ -1,0 +1,46 @@
+# File:          status__hrs_w4_p1.csv
+# Generated:     2026-11-10 23:29:13 EST
+# Base name:     diagnostic_status.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"diagnostic","status","seconds","error"
+"checkpoint review: cal_region","success",14.8600000000006,
+"checkpoint review: base_resid","success",12.25,
+"checkpoint review: status_by_A","success",0.190000000002328,
+"checkpoint review: cal_prog","success",0.399999999994179,
+"checkpoint review: cal_prog_all","success",0.810000000012224,
+"checkpoint review: joint_resid","success",0.620000000009895,
+"checkpoint review: cal_compare","success",16.9599999999919,
+"checkpoint review: cal_losses","success",85.9799999999959,
+"checkpoint review: q_compare","success",0.0600000000122236,
+"checkpoint review: q_validate","success",0.0499999999883585,
+"checkpoint review: q_resid_cmp","success",0.0600000000122236,
+"checkpoint review: q_resid_val","success",0.069999999992433,
+"checkpoint review: q_resid_sel","success",0.0300000000133878,
+"checkpoint review: q_resid_fit","success",0.0499999999883585,
+"checkpoint review: mnar_points","success",0.380000000004657,
+"checkpoint review: mnar_two_part","success",2.10000000000582,
+"pi_treatment_contrast","success",0.0599999999976717,
+"subgroup ATTs","success",3.41000000000349,
+"structural-zero pi audit","success",0.0800000000017462,
+"ATT balance by outer fold","success",75.8199999999924,
+"ATT imbalance among unadjusted candidates","success",0.139999999999418,
+"ATT overlap bins","success",78.75,
+"ATT balance within subgroups","success",593.919999999998,
+"ATT overlap by Wave I CES-D band","success",0.5,
+"ATT balance on nonlinear terms","success",0.639999999999418,
+"prognostic score balance","success",1.36999999999534,
+"fixed additive ATT bias sensitivity","success",0.0600000000122236,
+"att MNAR breakdown point","success",0.0499999999883585,
+"att fixed-nuisance extreme-mean bounds","success",0.0500000000029104,
+"att MNAR calibrated sensitivity","success",113.5,
+"expanded_wave2_completion","success",9024.73000000001,

@@ -1,0 +1,21 @@
+# File:          att_ov_425dea5c__hrs_w4_p1.csv
+# Generated:     2026-11-10 20:30:22 EST
+# Base name:     att_overlap_by_wave1_cesd_band.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"variable","band","n_treated","n_control","suppressed_small_cell","weighted_share_treated","share_of_treated_weight","share_of_control_att_weight","g_treated_median","g_control_median","control_att_weight_ess","control_odds_p99","control_odds_max_top_coded","min_cell"
+"MHSum_W1","[0,10)",130,6300,FALSE,0.0183093923647441,0.0971151936076668,0.132866605486281,0.0373161825854436,0.0203058228764651,1968.27645888704,0.0950960713294753,0.504530766297512,10
+"MHSum_W1","[10,16)",280,3410,FALSE,0.0725366341056294,0.209896578347352,0.218825062328868,0.0825540240948722,0.0628294055787199,876.281118808954,0.310809977869587,1.25675928760892,10
+"MHSum_W1","[16,22)",390,1630,FALSE,0.189253747443486,0.280582866408776,0.255594763709062,0.181850582361221,0.143151088105626,530.255163714429,0.817740851432767,2.45634568203389,10
+"MHSum_W1","[22,30)",330,610,FALSE,0.353542888591085,0.244811147546819,0.221131701763091,0.332741945981979,0.279328653622603,207.338171153603,2.19949361561406,3.56014463243035,10
+"MHSum_W1","[30,Inf]",,,TRUE,,,,,,,,,10
+"MHSum_W1","missing",,,TRUE,,,,,,,,,10

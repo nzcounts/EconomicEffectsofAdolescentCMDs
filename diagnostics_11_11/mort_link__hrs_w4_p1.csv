@@ -1,0 +1,16 @@
+# File:          mort_link__hrs_w4_p1.csv
+# Generated:     2026-11-09 21:36:37 EST
+# Base name:     mort_link.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"source_variable","source_year_variable","source_month_variable","derived_death_year_variable","derived_death_month_variable","raw_window_variable","death_year_start","death_year_end","n_mortality_records","n_valid_calendar_years","n_calendar_years_eligible_as_death","n_no_death_codes_overlapping_year_range","n_native_missing","n_native_missing_year","n_explicit_no_death_codes","n_unrecognized_codes","n_unrecognized_year_codes","n_valid_death_months","n_unknown_death_months","n_month_present_without_usable_death_year","n_native_missing_death_months","n_997_death_months","n_unrecognized_month_codes","n_deaths_in_raw_window","native_missing_means_no_death","n_linkage_left_rows","n_valid_weight_rows_requiring_linkage","n_all_rows_matched","n_all_rows_unmatched","n_required_rows_unmatched","n_nonrequired_rows_unmatched","n_linked_deaths_in_raw_window","n_deaths_classified_before_outcome","mortality_timing_mode","mortality_classification_rule","fieldwork_start_year","fieldwork_start_month","fieldwork_end_year","fieldwork_end_month","n_interview_year_observed","n_interview_month_observed","n_complete_interview_dates","n_death_month_unknown_in_raw_window","n_same_interview_month_unordered","n_same_interview_year_month_unknown"
+"NDIDD19Y","NDIDD19Y","NDIDD19M","NDIY4","NDIM4","D4Raw",1997,2009,20745,540,540,0,0,0,20205,0,0,540,0,0,0,0,0,230,TRUE,14660,13499,14660,0,0,0,171,143,"interview_month","NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint",2007,4,2009,2,11817,11817,11817,0,0,0

@@ -1,0 +1,20 @@
+# File:          att_pe_227ffcb8__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:39 EST
+# Base name:     att_per_fold_diagnostics.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"fold","n","n_treated","n_control","ess_treated","att_fold","n_treated_obs","n_control_obs","n_treated_event","n_treated_nonevent","n_control_event","n_control_nonevent"
+1,2695,252,2443,142.115917068471,-3.39226133344116,215,2089,,,,
+2,2730,248,2482,149.810101794887,1.35140730487094,208,2100,,,,
+3,2713,296,2417,169.718430553246,-4.46564102227281,242,2030,,,,
+4,2706,229,2477,139.679070801845,-0.509754647893046,189,2118,,,,
+5,2655,317,2338,128.787031549973,-2.76492687447964,264,1918,,,,

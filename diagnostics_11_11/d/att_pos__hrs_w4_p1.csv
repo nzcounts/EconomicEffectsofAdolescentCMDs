@@ -1,0 +1,29 @@
+# File:          att_pos__hrs_w4_p1.csv
+# Generated:     2026-11-10 20:17:53 EST
+# Base name:     att_positivity_control_weights.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"metric","value"
+"n_treated",1342
+"n_control",12157
+"g_treated_min",0.011008258908987
+"g_treated_median",0.196609005331993
+"g_treated_max",0.975
+"control_oddsw_median",0.0416085784988336
+"control_oddsw_p95",0.388356897346904
+"control_oddsw_p99",1.07080508886766
+"control_oddsw_max",32.1125709500524
+"control_oddsw_frac_gt_10",8.22571358065312e-05
+"control_oddsw_frac_gt_50",0
+"control_att_weight_ess",750.290227329709
+"control_att_weight_share_top1pct",0.248279354047346
+"control_att_weight_share_top10",0.0728812066791089

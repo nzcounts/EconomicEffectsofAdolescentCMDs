@@ -1,0 +1,37 @@
+# File:          dsp4__hrs_w4_p1.csv
+# Generated:     2026-11-09 21:37:04 EST
+# Base name:     dsp4_outcome_audit.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"status","dsp4","n","n_unmatched_id","n_outcome_observed","n_outcome_missing","n_observed_nonzero","n_dated_preoutcome_death","n_dated_nonpreoutcome","n_mortality_unresolved","n_disposition_death_without_dated_confirmation","possible_non_death_status","family","analytic_scope","note"
+"disposition_audit_composite","491",10991,0,10984,7,8831,0,10991,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","480",731,0,2,729,0,2,729,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","460",921,0,2,919,0,2,919,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","489",20,0,0,20,0,0,20,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","477",74,0,74,0,0,0,74,0,0,TRUE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","422",255,0,0,255,0,0,255,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","475",29,0,0,29,0,0,29,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","503",14,0,0,14,0,0,14,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","486",66,0,66,0,0,0,66,0,0,TRUE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","missing_or_unmatched",52,52,43,9,0,43,9,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","462",112,0,0,112,0,0,112,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","459",87,0,81,6,0,81,6,6,6,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale","Unconfirmed field-coded deaths remain unresolved; dated status 0 is not proof of survival. No automatic outcome recoding."
+"disposition_audit_composite","490",6,0,6,0,5,0,6,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","482",104,0,104,0,0,0,104,0,0,TRUE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","478",10,0,10,0,0,0,10,0,0,TRUE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","613",1,0,1,0,0,0,1,0,0,TRUE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","419",7,0,0,7,0,0,7,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","505",6,0,0,6,0,0,6,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","420",5,0,0,5,0,0,5,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","470",3,0,0,3,0,0,3,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","423",2,0,0,2,0,0,2,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""
+"disposition_audit_composite","481",3,0,0,3,0,0,3,0,0,FALSE,"HoursWorked","Wave-I probability-sample adolescents with complete Wave-II Feelings Scale",""

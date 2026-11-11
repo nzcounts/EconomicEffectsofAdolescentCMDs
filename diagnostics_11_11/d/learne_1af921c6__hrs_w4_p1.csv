@@ -1,0 +1,105 @@
+# File:          learne_1af921c6__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:37 EST
+# Base name:     learner_cv_risk_long.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"fold","nuisance","learner","cv_risk"
+1,"Q","SL.mean_All",38.112527
+1,"Q","SL.glmnet.fixed_All",34.643973
+1,"Q","SL.ranger.fixed_All",34.77296
+1,"Q","SL.xgboost.fixed_All",35.062092
+1,"Q","SL.twopart.glmnet_All",34.773242
+1,"Q","SL.twopart.xgboost_All",34.635827
+1,"Q","SL.glm_screen.forced_set_A",35.809093
+1,"Q","SL.gam.fixed_screen.forced_set_A",35.973931
+1,"g","SL.mean_All",416.174157
+1,"g","SL.glmnet.fixed_All",313.076798
+1,"g","SL.ranger.fixed_All",331.604273
+1,"g","SL.xgboost.fixed_All",315.017512
+1,"g","SL.glm_screen.forced_set",1345.720617
+1,"g","SL.gam.fixed_screen.forced_set",324.897487
+1,"pi","SL.mean_All",591.17696
+1,"pi","SL.glmnet.fixed_All",566.947713
+1,"pi","SL.xgboost.fixed_All",572.202273
+1,"pi","SL.glm_screen.forced_set_A",2313.321472
+2,"Q","SL.mean_All",38.554702
+2,"Q","SL.glmnet.fixed_All",34.83303
+2,"Q","SL.ranger.fixed_All",35.15581
+2,"Q","SL.xgboost.fixed_All",35.05679
+2,"Q","SL.twopart.glmnet_All",34.92442
+2,"Q","SL.twopart.xgboost_All",35.362744
+2,"Q","SL.glm_screen.forced_set_A",36.612006
+2,"Q","SL.gam.fixed_screen.forced_set_A",36.668248
+2,"g","SL.mean_All",432.738733
+2,"g","SL.glmnet.fixed_All",327.032489
+2,"g","SL.ranger.fixed_All",344.616027
+2,"g","SL.xgboost.fixed_All",328.365485
+2,"g","SL.glm_screen.forced_set",1462.024935
+2,"g","SL.gam.fixed_screen.forced_set",334.861784
+2,"pi","SL.mean_All",620.700639
+2,"pi","SL.glmnet.fixed_All",598.282633
+2,"pi","SL.xgboost.fixed_All",604.006029
+2,"pi","SL.glm_screen.forced_set_A",1951.701625
+3,"Q","SL.mean_All",36.993968
+3,"Q","SL.glmnet.fixed_All",33.482786
+3,"Q","SL.ranger.fixed_All",33.416831
+3,"Q","SL.xgboost.fixed_All",33.374649
+3,"Q","SL.twopart.glmnet_All",33.51639
+3,"Q","SL.twopart.xgboost_All",33.518698
+3,"Q","SL.glm_screen.forced_set_A",34.388892
+3,"Q","SL.gam.fixed_screen.forced_set_A",34.510217
+3,"g","SL.mean_All",412.808886
+3,"g","SL.glmnet.fixed_All",316.933885
+3,"g","SL.ranger.fixed_All",330.855672
+3,"g","SL.xgboost.fixed_All",316.157586
+3,"g","SL.glm_screen.forced_set",1493.585452
+3,"g","SL.gam.fixed_screen.forced_set",325.089507
+3,"pi","SL.mean_All",610.235017
+3,"pi","SL.glmnet.fixed_All",586.434286
+3,"pi","SL.xgboost.fixed_All",591.291321
+3,"pi","SL.glm_screen.forced_set_A",2746.815934
+4,"Q","SL.mean_All",39.008541
+4,"Q","SL.glmnet.fixed_All",35.260627
+4,"Q","SL.ranger.fixed_All",35.138978
+4,"Q","SL.xgboost.fixed_All",35.35163
+4,"Q","SL.twopart.glmnet_All",35.385583
+4,"Q","SL.twopart.xgboost_All",35.300557
+4,"Q","SL.glm_screen.forced_set_A",36.50342
+4,"Q","SL.gam.fixed_screen.forced_set_A",36.504115
+4,"g","SL.mean_All",430.885864
+4,"g","SL.glmnet.fixed_All",325.606527
+4,"g","SL.ranger.fixed_All",347.248303
+4,"g","SL.xgboost.fixed_All",324.905004
+4,"g","SL.glm_screen.forced_set",1087.958072
+4,"g","SL.gam.fixed_screen.forced_set",343.495387
+4,"pi","SL.mean_All",596.501426
+4,"pi","SL.glmnet.fixed_All",570.803886
+4,"pi","SL.xgboost.fixed_All",578.627723
+4,"pi","SL.glm_screen.forced_set_A",2140.908127
+5,"Q","SL.mean_All",40.697019
+5,"Q","SL.glmnet.fixed_All",37.745764
+5,"Q","SL.ranger.fixed_All",37.137919
+5,"Q","SL.xgboost.fixed_All",37.618562
+5,"Q","SL.twopart.glmnet_All",37.613866
+5,"Q","SL.twopart.xgboost_All",37.761002
+5,"Q","SL.glm_screen.forced_set_A",38.419085
+5,"Q","SL.gam.fixed_screen.forced_set_A",38.557985
+5,"g","SL.mean_All",453.622681
+5,"g","SL.glmnet.fixed_All",340.170774
+5,"g","SL.ranger.fixed_All",358.215759
+5,"g","SL.xgboost.fixed_All",339.016532
+5,"g","SL.glm_screen.forced_set",1360.964127
+5,"g","SL.gam.fixed_screen.forced_set",349.650121
+5,"pi","SL.mean_All",645.512678
+5,"pi","SL.glmnet.fixed_All",618.236958
+5,"pi","SL.xgboost.fixed_All",621.047941
+5,"pi","SL.glm_screen.forced_set_A",3729.851556

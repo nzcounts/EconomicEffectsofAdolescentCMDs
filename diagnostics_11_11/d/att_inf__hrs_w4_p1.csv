@@ -1,0 +1,16 @@
+# File:          att_inf__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:48 EST
+# Base name:     att_inference_robustness.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"psi_att","n_rows","G_nominal","G_star_influence_concentration","top1_variance_share","top5_variance_share","top10_variance_share","primary_inference_method","primary_df","primary_se","primary_ci_lower","primary_ci_upper","primary_p","gstar_df_sensitivity","gstar_t_critical_sensitivity","gstar_ci_lower_sensitivity","gstar_ci_upper_sensitivity","gstar_p_sensitivity","psu_only_se_sensitivity","psu_only_ci_lower_sensitivity","psu_only_ci_upper_sensitivity","psu_only_p_sensitivity","fixed_nuisance_loco_se","fixed_nuisance_multiplier_se","fixed_nuisance_multiplier_ci_lower","fixed_nuisance_multiplier_ci_upper","multiplier_reps"
+-2.08142686939059,13499,132,30.1024475588761,0.0659342213503576,0.30224507600306,0.521312963878826,"GSWGT2-weighted REGION-stratified PSUSCID-clustered with-replacement EIF variance using the complete valid-weight design (every record with a positive weight) and analytic-domain subpopulation",128,1.14582763170519,-4.34864260318437,0.18578886440318,0.0716294497269808,29.1024475588761,2.04491695591255,-4.42454922201767,0.26169548323648,0.079603244899006,1.15769480334492,-4.37162334603423,0.208769607253046,0.0744949929930194,1.16290209326093,1.16286849103651,-4.40945866922399,0.225028509236419,2000

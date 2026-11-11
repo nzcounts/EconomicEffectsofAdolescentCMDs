@@ -1,0 +1,21 @@
+# File:          pi_trt_contrast__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:49 EST
+# Base name:     pi_treatment_contrast.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"scope","fold","n","weighted_mean_raw","mean_abs_raw","max_abs_raw","fraction_abs_raw_gt_tol","weighted_mean_clipped","mean_abs_clipped","max_abs_clipped"
+"fold",1,2695,-0.00410738495618392,0.00413945295149533,0.00848948102299707,1,-0.00410738495618392,0.00413945295149533,0.00848948102299707
+"fold",2,2730,0.0021422324799117,0.00230932601187021,0.00412011906140708,1,0.0021422324799117,0.00230932601187021,0.00412011906140708
+"fold",3,2713,0.00380959331980391,0.00382810013792423,0.00709190428474932,1,0.00380959331980391,0.00382810013792423,0.00709190428474932
+"fold",4,2706,0.00231548156514857,0.00239887137100839,0.00441690785826809,1,0.00231548156514857,0.00239887137100839,0.00441690785826809
+"fold",5,2655,-0.00139942383449284,0.00149236465670007,0.00264886284261823,1,-0.00139942383449284,0.00149236465670007,0.00264886284261823
+"overall",,13499,0.000613311455049727,0.00283720982919931,0.00848948102299707,1,0.000613311455049727,0.00283720982919931,0.00848948102299707

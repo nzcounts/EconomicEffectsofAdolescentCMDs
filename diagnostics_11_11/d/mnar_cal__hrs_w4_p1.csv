@@ -1,0 +1,16 @@
+# File:          mnar_cal__hrs_w4_p1.csv
+# Generated:     2026-11-10 20:58:48 EST
+# Base name:     att_mnar_calibrated_sensitivity.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"direction","breakdown_delta_sd_abs","breakdown_delta_outcome_units","measured_gradient_outcome_units","measured_gradient_sd","measured_gradient_signed","measured_gradient_boot_lower","measured_gradient_boot_upper","measured_gradient_boot_reps_requested","measured_gradient_boot_reps_used","measured_gradient_boot_sign_reversal_fraction","bootstrap_design","propensity_cutpoint_rule","calibrated_gamma","calibrated_gamma_lower","calibrated_gamma_upper","gamma_interval_conditions","response_propensity_prob_low","response_propensity_prob_high","outcome_sd_used","interpretation"
+"not_applicable",,,0.7455203021104,0.0356836539803663,-0.7455203021104,0.0351082442563552,2.75326860894859,1000,1000,0.24,"Approximate REGION-stratified PSU cluster bootstrap; PSUs resampled with replacement within REGION and multiplicities carried into survey weights","survey-weighted Hyndman-Fan type 8",,,,"Propagates uncertainty in the measured gradient only; breakdown shift, fitted nuisances, configured outcome cap, and primary SE are held fixed.",0.2,0.8,20.8924877065728,"Descriptive calibrated MNAR sensitivity adapted from a confounding framework. Gamma is interpretable only relative to the prespecified weighted propensity strata."

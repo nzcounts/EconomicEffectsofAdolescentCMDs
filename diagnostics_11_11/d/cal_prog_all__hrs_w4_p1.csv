@@ -1,0 +1,42 @@
+# File:          cal_prog_all__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:50:05 EST
+# Base name:     cal_prog_all.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"metric","value","score_source","g_calibration","interpretation"
+"prognostic_smd_pre",-0.791326931179987,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_smd_post",-0.111596570566311,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_treated",30.2025116441575,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_control_pre",34.1748692289847,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_control_post",30.7627118168835,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_pooled_sd",5.01986906840617,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_gap_outcome_units",-0.560200172726031,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"n_treated",1342,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"n_control",12157,"this_run_refitted","identity","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_smd_pre",-0.791326931179987,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_smd_post",-0.0481128652952154,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_treated",30.2025116441575,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_control_pre",34.1748692289847,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_control_post",30.4440319284453,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_pooled_sd",5.01986906840617,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_gap_outcome_units",-0.241520284287844,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"n_treated",1342,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"n_control",12157,"this_run_refitted","platt","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_smd_pre",-0.791326931179987,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_smd_post",-0.0229214519097682,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_treated",30.2025116441575,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_control_pre",34.1748692289847,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_mean_control_post",30.3175743316023,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_pooled_sd",5.01986906840617,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"prognostic_gap_outcome_units",-0.115062687444805,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"n_treated",1342,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"
+"n_control",12157,"this_run_refitted","isotonic","same_reference_score_descriptive_balance_not_estimated_bias"

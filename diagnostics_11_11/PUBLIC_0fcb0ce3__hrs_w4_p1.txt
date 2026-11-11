@@ -1,0 +1,8 @@
+ADD HEALTH PIPELINE PUBLICATION-READINESS GATE: PASS
+This verifies configured outputs and numerical checks; it does not certify causal identification or journal acceptance.
+Run ID: 2026-11-09_185513__pid11520
+Pipeline version: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+Script MD5: 7bb2fc83183a8e08ab8cb6cd8336fd59
+Analysis spec MD5: e7c7308b151d79fb852927eea29b254e
+Prevention gain required: TRUE
+Validated at: 2026-11-10 23:30:29 EST

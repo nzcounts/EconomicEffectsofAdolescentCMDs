@@ -1,0 +1,22 @@
+# File:          att_subgroups__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:59 EST
+# Base name:     att_subgroups.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"subgroup_variable","raw_variable","subgroup","n","n_treated","weighted_share_treated","att_estimate","att_se","att_ci_lower","att_ci_upper","att_p","inference_df","effective_clusters","mu1","mu0","att_onestep","control_odds_max","control_survey_odds_ess","n_folds_with_variable","note"
+"all",,"all",13499,1342,0.0933490915501375,-2.08142686939059,1.14582763170519,-4.34864260318437,0.18578886440318,0.0716294497269808,128,30.1024475588761,27.4501027680547,29.5315296374453,-1.62068257975853,32.1125709500524,750.290227329709,,"whole analytic sample; equals the headline ATT"
+"wave1_cesd","MHSum_W1",">= 22",1295,539,0.421348106106713,-2.50389083201439,2.11950029571921,-6.69768428337664,1.68990261934786,0.239650412147851,128,16.955823832765,24.4011916315364,26.9050824635508,-1.26696730776817,32.1125709500524,131.302209240036,5,"69 respondents with no value are in no subgroup"
+"wave1_cesd","MHSum_W1","< 22",12135,797,0.0606996875465737,-2.04305891210393,1.26931849934572,-4.5546224259192,0.468504601711344,0.109954976341578,128,18.1244491300581,29.2674977372004,31.3105566493043,-2.10983666565968,2.45634568203389,1974.11352853946,5,"69 respondents with no value are in no subgroup"
+"wave1_cesd","MHSum_W1","difference: (< 22) minus (>= 22)",,,,0.460831919910465,2.47420899983439,-4.43481330446823,5.35647714428916,0.852540249015301,128,17.5044054123963,,,,,,5,"difference of subgroup ATTs; interval and p-value test equal effects"
+"sex","BIO_SEX","1",6575,445,0.0644322222250336,-2.23778639913359,1.66829258519051,-5.53878830645064,1.06321550818347,0.182177655893012,128,31.7363497543252,31.6553350619999,33.8931214611335,-2.31960531450388,1.71938943304613,825.359943637322,5,
+"sex","BIO_SEX","2",6924,897,0.122533971752095,-2.02919381355532,1.58491512141982,-5.16521916377589,1.10683153666526,0.202748977766072,128,18.8731582542748,25.2234173820379,27.2526111955932,-1.24976073633989,32.1125709500524,350.220614957135,5,
+"sex","BIO_SEX","difference: (2) minus (1)",,,,0.20859258557827,2.38080794407806,-4.5022426924313,4.91942786358784,0.930320235261549,128,21.2201374943108,,,,,,5,"difference of subgroup ATTs; interval and p-value test equal effects"

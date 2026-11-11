@@ -1,0 +1,29 @@
+# File:          att_eif_diags__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:48 EST
+# Base name:     att_eif_diagnostics.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"metric","value"
+"psi_att",-2.08142686939059
+"att_se",1.14582763170519
+"att_se_centered",1.14582763170519
+"eif_weighted_mean",6.30085451346703e-14
+"pi_set_to_one_wiring_check",-2.16995838004461
+"pi_set_to_one_wiring_gap",-0.0885315106540148
+"n_clusters",132
+"small_sample_correction",1.00763358778626
+"eif_min",-2456.94486914431
+"eif_max",2748.72257965537
+"eif_sd_unweighted",108.968321646968
+"weighted_eif_sd",129.064891870218
+"max_abs_cluster_eic",3997.60430644979
+"sum_cluster_eic_sq",242375504.914631

@@ -1,0 +1,35 @@
+# File:          att_ba_773f222d__hrs_w4_p1.csv
+# Generated:     2026-11-10 20:19:09 EST
+# Base name:     att_balance_unselected_top.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"variable","smd_pre","smd_post","abs_smd_pre","abs_smd_post","max_abs_smd","n_folds_in_final_design","reason_not_adjusted","n_folds","n_candidates_scanned","n_unadjusted_above_threshold","rank"
+"TST90782",1.36652409774118,3.43506834488467,1.36652409774118,3.43506834488467,3.43506834488467,0,"never screened (prefilter or exclusion)",5,5675,1146,1
+"H1NR43_1",0.0461410208475324,-2.46794986437793,0.0461410208475324,2.46794986437793,2.46794986437793,0,"never screened (prefilter or exclusion)",5,5675,1146,2
+"BST90819",-1.35024338364044,-1.93498850442253,1.35024338364044,1.93498850442253,1.93498850442253,0,"never screened (prefilter or exclusion)",5,5675,1146,3
+"BST90665",1.25872245095815,1.79963226467983,1.25872245095815,1.79963226467983,1.79963226467983,0,"never screened (prefilter or exclusion)",5,5675,1146,4
+"H1RI22O3",1.16349036845853,1.68525399331285,1.16349036845853,1.68525399331285,1.68525399331285,0,"never screened (prefilter or exclusion)",5,5675,1146,5
+"H1HR8B",0.838228048313462,1.61135545152,0.838228048313462,1.61135545152,1.61135545152,0,"never screened (prefilter or exclusion)",5,5675,1146,6
+"H1RX22H3",0.990668268408548,1.53576814513213,0.990668268408548,1.53576814513213,1.53576814513213,0,"never screened (prefilter or exclusion)",5,5675,1146,7
+"H1NR43_2",-0.0298189086846152,-1.39805475090208,0.0298189086846152,1.39805475090208,1.39805475090208,0,"never screened (prefilter or exclusion)",5,5675,1146,8
+"BST90825",1.75948831815496,1.22524607676553,1.75948831815496,1.22524607676553,1.75948831815496,0,"never screened (prefilter or exclusion)",5,5675,1146,9
+"H1TO34",-0.199490508936635,-1.14132884321713,0.199490508936635,1.14132884321713,1.14132884321713,3,"kept in some outer folds only",5,5675,1146,10
+"H1RX22C3",0.97712219210145,1.13716411408284,0.97712219210145,1.13716411408284,1.13716411408284,0,"never screened (prefilter or exclusion)",5,5675,1146,11
+"H1RX22E3",1.07699140565886,1.10160225452739,1.07699140565886,1.10160225452739,1.10160225452739,0,"never screened (prefilter or exclusion)",5,5675,1146,12
+"BST90641",-0.54984865202456,-0.908947077838339,0.54984865202456,0.908947077838339,0.908947077838339,0,"screened, not selected in any outer fold",5,5675,1146,13
+"H1TO45",0.0480114900017585,-0.899243051364768,0.0480114900017585,0.899243051364768,0.899243051364768,0,"never screened (prefilter or exclusion)",5,5675,1146,14
+"BST90647",-0.719434305594917,-0.864219694705624,0.719434305594917,0.864219694705624,0.864219694705624,0,"screened, not selected in any outer fold",5,5675,1146,15
+"BST90548",-0.98463935981192,-0.863922169186996,0.98463935981192,0.863922169186996,0.98463935981192,0,"never screened (prefilter or exclusion)",5,5675,1146,16
+"H1RX22G2",0.879493811300369,0.838980941624745,0.879493811300369,0.838980941624745,0.879493811300369,0,"never screened (prefilter or exclusion)",5,5675,1146,17
+"BST90554",-0.949866230872149,-0.829044731511787,0.949866230872149,0.829044731511787,0.949866230872149,0,"never screened (prefilter or exclusion)",5,5675,1146,18
+"H1RX22I3",1.04400391268282,0.813668001094606,1.04400391268282,0.813668001094606,1.04400391268282,0,"never screened (prefilter or exclusion)",5,5675,1146,19
+"BST90539",-0.667132221512763,-0.810087985442899,0.667132221512763,0.810087985442899,0.810087985442899,0,"never screened (prefilter or exclusion)",5,5675,1146,20

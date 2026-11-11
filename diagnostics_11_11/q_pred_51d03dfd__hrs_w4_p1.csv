@@ -1,0 +1,35 @@
+# File:          q_pred_51d03dfd__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:48:23 EST
+# Base name:     q_prediction_clipping.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"fold","prediction_set","n_predictions","raw_min","raw_max","n_below","n_above","n_clipped","fraction_clipped","mean_absolute_clipping_displacement","max_absolute_clipping_displacement","lower_bound","upper_bound"
+1,"Q1W",2695,0.128492088980052,0.431606043754165,0,0,0,0,0,0,0.005,0.995
+1,"Q0W",2695,0.139698795211698,0.446550491388566,0,0,0,0,0,0,0.005,0.995
+1,"QAW",2695,0.128492088980052,0.446550491388566,0,0,0,0,0,0,0.005,0.995
+1,"pooled",8085,0.128492088980052,0.446550491388566,0,0,0,0,0,0,0.005,0.995
+2,"Q1W",2730,0.0997465581702343,0.385642543133229,0,0,0,0,0,0,0.005,0.995
+2,"Q0W",2730,0.1262298761803,0.418864700868965,0,0,0,0,0,0,0.005,0.995
+2,"QAW",2730,0.0997465581702343,0.41376428451825,0,0,0,0,0,0,0.005,0.995
+2,"pooled",8190,0.0997465581702343,0.418864700868965,0,0,0,0,0,0,0.005,0.995
+3,"Q1W",2713,0.100484491220538,0.384153383292915,0,0,0,0,0,0,0.005,0.995
+3,"Q0W",2713,0.112355698807853,0.390722737192887,0,0,0,0,0,0,0.005,0.995
+3,"QAW",2713,0.112355698807853,0.390722737192887,0,0,0,0,0,0,0.005,0.995
+3,"pooled",8139,0.100484491220538,0.390722737192887,0,0,0,0,0,0,0.005,0.995
+4,"Q1W",2706,0.146203154549567,0.385813527185304,0,0,0,0,0,0,0.005,0.995
+4,"Q0W",2706,0.152050337118647,0.410202144359252,0,0,0,0,0,0,0.005,0.995
+4,"QAW",2706,0.146203154549567,0.410202144359252,0,0,0,0,0,0,0.005,0.995
+4,"pooled",8118,0.146203154549567,0.410202144359252,0,0,0,0,0,0,0.005,0.995
+5,"Q1W",2655,0.145640770715677,0.364824576324183,0,0,0,0,0,0,0.005,0.995
+5,"Q0W",2655,0.17804960275248,0.37710935234733,0,0,0,0,0,0,0.005,0.995
+5,"QAW",2655,0.169354224268281,0.37710935234733,0,0,0,0,0,0,0.005,0.995
+5,"pooled",7965,0.145640770715677,0.37710935234733,0,0,0,0,0,0,0.005,0.995

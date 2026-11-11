@@ -1,0 +1,33 @@
+# File:          learne_05a94059__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:37 EST
+# Base name:     learner_cv_risk_summary.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"nuisance","learner","mean_cv_risk","median_cv_risk","min_cv_risk","max_cv_risk","n_folds"
+"Q","SL.mean_All",38.6733514,38.554702,36.993968,40.697019,5
+"Q","SL.glmnet.fixed_All",35.193236,34.83303,33.482786,37.745764,5
+"Q","SL.ranger.fixed_All",35.1244996,35.138978,33.416831,37.137919,5
+"Q","SL.xgboost.fixed_All",35.2927446,35.062092,33.374649,37.618562,5
+"Q","SL.twopart.glmnet_All",35.2427002,34.92442,33.51639,37.613866,5
+"Q","SL.twopart.xgboost_All",35.3157656,35.300557,33.518698,37.761002,5
+"Q","SL.glm_screen.forced_set_A",36.3464992,36.50342,34.388892,38.419085,5
+"Q","SL.gam.fixed_screen.forced_set_A",36.4428992,36.504115,34.510217,38.557985,5
+"g","SL.mean_All",429.2460642,430.885864,412.808886,453.622681,5
+"g","SL.glmnet.fixed_All",324.5640946,325.606527,313.076798,340.170774,5
+"g","SL.ranger.fixed_All",342.5080068,344.616027,330.855672,358.215759,5
+"g","SL.xgboost.fixed_All",324.6924238,324.905004,315.017512,339.016532,5
+"g","SL.glm_screen.forced_set",1350.0506406,1360.964127,1087.958072,1493.585452,5
+"g","SL.gam.fixed_screen.forced_set",335.5988572,334.861784,324.897487,349.650121,5
+"pi","SL.mean_All",612.825344,610.235017,591.17696,645.512678,5
+"pi","SL.glmnet.fixed_All",588.1410952,586.434286,566.947713,618.236958,5
+"pi","SL.xgboost.fixed_All",593.4350574,591.291321,572.202273,621.047941,5
+"pi","SL.glm_screen.forced_set_A",2576.5197428,2313.321472,1951.701625,3729.851556,5

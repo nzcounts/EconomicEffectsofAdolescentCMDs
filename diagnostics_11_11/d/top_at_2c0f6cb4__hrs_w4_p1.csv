@@ -1,0 +1,25 @@
+# File:          top_at_2c0f6cb4__hrs_w4_p1.csv
+# Generated:     2026-11-10 18:52:48 EST
+# Base name:     top_att_cluster_influence.csv
+# Outcome:       family=HoursWorked, wave=4, member=NA
+# Run ID:        2026-11-09_185513__pid11520
+# Pipeline seed: 1
+# Pipeline ver.: v8.44_control_arm_Q_calselect_scope+patches01-49+forcedW_20261109_final
+# Script MD5:    7bb2fc83183a8e08ab8cb6cd8336fd59
+# Analysis spec: e7c7308b151d79fb852927eea29b254e
+# Run config:    8e1cdd5af0ab415d7966c99039ff150c
+# Run label:     p1
+# Outcome def:   mortality-inclusive outcome; NDIDD19Y/NDIDD19M month-timed before IYEAR4/IMONTH4 for interviewed respondents; no-interview deaths on or before the latest complete interview month in the wave file are classified before the fieldwork endpoint assigned observed zero when classified pre-outcome; unconditional current weekly hours in questionnaire-qualifying jobs (>=10 h/week), capped at 120; US-resident civilian noninstitutional contribution; documented nonresident/institution/military/death zeros; unresolved contributions missing; fixed cohort, not BLS LFPR
+# R version:     4.4.1
+# Package vers.: haven=2.5.4;dplyr=1.2.1;purrr=1.2.2;SuperLearner=2.0.29;glmnet=4.1.8;survey=4.4.2;ranger=0.16.0;xgboost=1.7.8.1;Matrix=1.7.4;earth=5.3.3;mgcv=1.9.1;nnet=7.3.19;e1071=1.7.14
+"cluster","n_rows","n_treated","eic_contribution","abs_eic_contribution","att_leave_this_cluster_out","delta_from_full"
+"21",77,12,3997.60430644979,3997.60430644979,-2.381365404448,-0.299938535057408
+"68",74,12,-3967.10163453761,3967.10163453761,-1.78292864005454,0.298498229336051
+"164",63,5,-3840.55138906143,3840.55138906143,-1.79221103478623,0.289215834604362
+"66",93,18,-3680.10115416689,3680.10115416689,-1.80310952115759,0.278317348233002
+"58",623,54,3639.38014744041,3639.38014744041,-2.35983262124028,-0.278405751849688
+"87",84,8,3573.92492033504,3573.92492033504,-2.34848492748428,-0.267058058093681
+"150",72,6,3474.62051779782,3474.62051779782,-2.34021951099662,-0.258792641606028
+"93",62,10,3174.26905797815,3174.26905797815,-2.31950085553022,-0.238073986139628
+"114",62,4,3150.99227511562,3150.99227511562,-2.31701018113522,-0.235583311744626
+"19",108,12,-2871.58953983701,2871.58953983701,-1.86698360869199,0.214443260698604
